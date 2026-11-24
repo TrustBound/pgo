@@ -12,6 +12,7 @@
          callback_mode/0,
          connected/3,
          disconnected/3,
+         format_status/1,
          terminate/3]).
 
 -include("dream_pgo_internal.hrl").
@@ -96,12 +97,15 @@ disconnected({call, {Pid, _}=From}, {listen, Channel}, Data=#data{listeners=List
 disconnected(EventType, EventContent, Data) ->
     handle_event(EventType, EventContent, Data).
 
+escape_channel_name(Name) ->
+    ["\"", string:replace(Name, "\"", "\"\"", all), "\""].
+
 connected(enter, _, #data{conn=Conn,
                           listener_channels=ListenerChannels}) ->
     case map_size(ListenerChannels) > 0 of
         true ->
             Channels = maps:keys(ListenerChannels),
-            ListenStatements = [["LISTEN ", Channel, "; "] || Channel <- Channels],
+            ListenStatements = [["LISTEN ", escape_channel_name(Channel), "; "] || Channel <- Channels],
             Query = ["DO $$BEGIN ", ListenStatements, " END$$"],
             #{command := do} = dream_pgo_handler:extended_query(Conn, Query, []),
             keep_state_and_data;
@@ -119,7 +123,7 @@ connected({call, {Pid, _}=From}, {listen, Channel}, Data=#data{conn=Conn,
     case erlang:map_size(maps:get(Channel, ListenerChannels1)) of
         1 ->
             %% first time listening on this channel
-            case dream_pgo_handler:extended_query(Conn, ["LISTEN ", Channel], []) of
+            case dream_pgo_handler:extended_query(Conn, ["LISTEN ", escape_channel_name(Channel)], []) of
                 #{command := listen} ->
                     {keep_state, Data#data{listeners=Listeners1,
                                            listener_channels=ListenerChannels1}, [{reply, From, {ok, Ref}}]};
@@ -171,6 +175,13 @@ handle_event(info, {ssl_closed, _}, _Data) ->
 handle_event(_, _, _) ->
     keep_state_and_data.
 
+format_status(Status) ->
+    maps:map(fun(data, Data=#data{config=PoolConfig}) ->
+                     Data#data{config=PoolConfig#{password => "*"}};
+                (_, Value) ->
+                     Value
+             end, Status).
+
 terminate(_Reason, _, #data{conn=undefined}) ->
     ok;
 terminate(_Reason, _, #data{conn=Conn}) ->
@@ -201,7 +212,7 @@ unlisten(Ref, Listeners, ListenerChannels, Conn) ->
             case erlang:map_size(PerChannel) of
                 0 ->
                     ListenerChannels1 =maps:remove(Channel, ListenerChannels),
-                    #{command := unlisten} = dream_pgo_handler:extended_query(Conn, ["UNLISTEN ", Channel], []),
+                    #{command := unlisten} = dream_pgo_handler:extended_query(Conn, ["UNLISTEN ", escape_channel_name(Channel)], []),
                     {Listeners1, ListenerChannels1};
                 _ ->
                     {Listeners1, ListenerChannels#{Channel => PerChannel}}

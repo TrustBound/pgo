@@ -23,6 +23,12 @@
 -define(DEFAULT_USER, "postgres").
 -define(DEFAULT_PASSWORD, "").
 
+resolve_password(Options) ->
+    case maps:get(password, Options, ?DEFAULT_PASSWORD) of
+        Fun when is_function(Fun, 0) -> Fun();
+        Password -> Password
+    end.
+
 % driver options.
 %% -type open_option() ::
 %%         {host, inet:ip_address() | inet:hostname()} % default: ?DEFAULT_HOST
@@ -48,9 +54,9 @@
 -type extended_query_loop_state() ::
         % expect parse_complete message
         parse_complete
-    |   {parse_complete_with_params, [any()]}
+    |   {parse_complete_with_params, iodata(), [any()]}
         % expect parameter_description
-    |   {parameter_description_with_params, [any()]}
+    |   {parameter_description_with_params, iodata(), [any()]}
         % expect row_description or no_data
     |   pre_bind_row_description
         % expect bind_complete
@@ -156,11 +162,13 @@ setup_ssl(Conn=#conn{socket=Socket}, Options) ->
             case gen_tcp:recv(Socket, 1) of
                 {ok, <<$S>>} ->
                     % upgrade socket.
-                    SSLOptions = maps:get(ssl_options, Options, []),
+                    UserSSLOptions = maps:get(ssl_options, Options, []),
+                    SSLOptions = default_ssl_options(Options, UserSSLOptions),
                     case ssl:connect(Socket, [binary, {packet, raw}, {active, false} | SSLOptions]) of
                         {ok, SSLSocket} ->
                             setup_startup(Conn#conn{socket=SSLSocket}, Options);
                         {error, _} = SSLConnectErr ->
+                            gen_tcp:close(Socket),
                             SSLConnectErr
                     end;
                 {ok, <<$N>>} ->
@@ -170,6 +178,23 @@ setup_ssl(Conn=#conn{socket=Socket}, Options) ->
         {error, _} = SendSSLRequestError ->
             SendSSLRequestError
     end.
+
+default_ssl_options(Options, UserSSLOptions) ->
+    Host = maps:get(host, Options, ?DEFAULT_HOST),
+    SNI = case is_list(Host) of
+              true -> Host;
+              false -> binary_to_list(iolist_to_binary([Host]))
+          end,
+    Defaults = [{verify, verify_peer},
+                {cacerts, public_key:cacerts_get()},
+                {server_name_indication, SNI},
+                {customize_hostname_check,
+                 [{match_fun, public_key:pkix_verify_hostname_match_fun(https)}]}],
+    merge_ssl_options(Defaults, UserSSLOptions).
+
+merge_ssl_options(Defaults, UserOptions) ->
+    UserKeys = proplists:get_keys(UserOptions),
+    [Opt || {Key, _} = Opt <- Defaults, not lists:member(Key, UserKeys)] ++ UserOptions.
 
 %% The parameters of the startup packet: user, database, then the caller's
 %% connection_parameters in the caller's order. The application_name pool
@@ -301,7 +326,7 @@ send_startup(Conn=#conn{socket_module=SocketModule,
     end.
 
 setup_authenticate_cleartext_password(Conn, Options) ->
-    Password = maps:get(password, Options, ?DEFAULT_PASSWORD),
+    Password = resolve_password(Options),
     setup_authenticate_password(Conn, Password).
 
 setup_authenticate_sasl_password(Conn, MethodsBinary, Options) ->
@@ -363,7 +388,7 @@ scram_client_final(Nonce, ServerFirst, #conn{socket_module=SocketModule,
                                              pool=Pool}, Options) ->
     User = maps:get(user, Options, ?DEFAULT_USER),
     ServerFirstParts = dream_pgo_scram:parse_server_first(ServerFirst, Nonce),
-    Password = maps:get(password, Options, ?DEFAULT_PASSWORD),
+    Password = resolve_password(Options),
     {ClientFinalMessage, ServerProof} = dream_pgo_scram:get_client_final(ServerFirstParts, Nonce, User, Password),
     case SocketModule:send(Socket, dream_pgo_protocol:encode_scram_response_message(ClientFinalMessage)) of
         ok ->
@@ -374,7 +399,7 @@ scram_client_final(Nonce, ServerFirst, #conn{socket_module=SocketModule,
 
 setup_authenticate_md5_password(Conn, Salt, Options) ->
     User = maps:get(user, Options, ?DEFAULT_USER),
-    Password = maps:get(password, Options, ?DEFAULT_PASSWORD),
+    Password = resolve_password(Options),
     % concat('md5', md5(concat(md5(concat(password, username)), random-salt)))
     <<MD51Int:128>> = crypto:hash(md5, [Password, User]),
     MD51Hex = io_lib:format("~32.16.0b", [MD51Int]),
@@ -472,23 +497,11 @@ process_active_data(PartialHeader, Conn=#conn{socket=Socket,
     end.
 
 
-% This function should always return true as set or reset may only fail because
-% we are within a failed transaction.
-% If set failed because the transaction was aborted, the query will fail
-% (unless it is a rollback).
-% If set succeeded within a transaction, but the query failed, the reset may
-% fail but set only applies to the transaction anyway.
-%% -spec set_succeeded_or_within_failed_transaction({set, []} | {error, dream_pgo_error:dream_pgo_error()}) -> boolean().
-%% set_succeeded_or_within_failed_transaction({set, []}) -> true;
-%% set_succeeded_or_within_failed_transaction({error, {error, _} = Error}) ->
-%%     error:is_in_failed_sql_transaction(Error).
-
 -spec extended_query(#conn{}, iodata(), list(), dream_pgo:decode_opts(), any(), list()) -> dream_pgo:result().
 extended_query(Conn=#conn{socket=Socket,
                           socket_module=SocketModule,
                           pool=Pool}, Query, Parameters, DecodeOptions, PerRowFun, Acc0) ->
     _ = setopts(SocketModule, Socket, [{active, false}]),
-    put(query, Query),
     ParseMessage = dream_pgo_protocol:encode_parse_message("", Query, []),
     %% We ask for a description of parameters only if required.
     PacketT = case dream_pgo_query_cache:lookup(Pool, Query) of
@@ -502,7 +515,7 @@ extended_query(Conn=#conn{socket=Socket,
                   not_found ->
                       DescribeStatementMessage = dream_pgo_protocol:encode_describe_message(statement, ""),
                       FlushMessage = dream_pgo_protocol:encode_flush_message(),
-                      LoopState0 = {parse_complete_with_params, Parameters},
+                      LoopState0 = {parse_complete_with_params, Query, Parameters},
                       {ok, [ParseMessage, DescribeStatementMessage, FlushMessage], LoopState0}
 
               end,
@@ -554,9 +567,6 @@ encode_bind_describe_execute(Conn, Parameters, ParameterDataTypes) ->
             {Class, Exception}
     end.
 
-%% requires_statement_description(_Parameters) ->
-%%     true. %dream_pgo_protocol:bind_requires_statement_description(Parameters).
-
 -spec receive_loop(extended_query_loop_state(), dream_pgo:decode_fun(), list(), list(), dream_pgo:conn())
                   -> dream_pgo:result().
 receive_loop(LoopState, DecodeFun, Acc0, DecodeOptions, Conn=#conn{socket=Socket,
@@ -579,14 +589,14 @@ receive_loop0(#parse_complete{}, parse_complete, DecodeFun, Acc0, DecodeOptions,
 
 %% Path where we ask the backend about what it expects.
 %% We ignore row descriptions sent before bind as the format codes are null.
-receive_loop0(#parse_complete{}, {parse_complete_with_params, Parameters}, DecodeFun, Acc0, DecodeOptions, Conn) ->
-    receive_loop({parameter_description_with_params, Parameters}, DecodeFun, Acc0, DecodeOptions, Conn);
+receive_loop0(#parse_complete{}, {parse_complete_with_params, Query, Parameters}, DecodeFun, Acc0, DecodeOptions, Conn) ->
+    receive_loop({parameter_description_with_params, Query, Parameters}, DecodeFun, Acc0, DecodeOptions, Conn);
 receive_loop0(#parameter_description{data_types=ParameterDataTypes},
-              {parameter_description_with_params, Parameters}, DecodeFun,
+              {parameter_description_with_params, Query, Parameters}, DecodeFun,
               Acc0, DecodeOptions, Conn=#conn{socket=Socket,
                                               socket_module=SocketModule,
                                               pool=Pool}) ->
-    dream_pgo_query_cache:insert(Pool, get(query), ParameterDataTypes),
+    dream_pgo_query_cache:insert(Pool, Query, ParameterDataTypes),
     %% oob_update_oid_map_if_required(Conn, ParameterDataTypes, DecodeOptions),
     PacketT = encode_bind_describe_execute(Conn, Parameters, ParameterDataTypes),
     case PacketT of
@@ -628,15 +638,6 @@ receive_loop0(#command_complete{command_tag = Tag}, _LoopState, DecodeFun, Acc0,
     receive_loop({result, #{command => Command,
                             num_rows => NumRows,
                             rows => lists:reverse(Acc0)}}, DecodeFun, Acc0, DecodeOptions, Conn);
-%% receive_loop0(#portal_suspended{}, LoopState, DecodeFun, Acc0, DecodeOptions, Conn={_,S}) ->
-%%     ExecuteMessage = dream_pgo_protocol:encode_execute_message("", 0),
-%%     FlushMessage = dream_pgo_protocol:encode_flush_message(),
-%%     SinglePacket = [ExecuteMessage, FlushMessage],
-%%     case gen_tcp:send(S, SinglePacket) of
-%%         ok -> receive_loop(LoopState, DecodeFun, Acc0, DecodeOptions, Conn);
-%%         {error, _} = SendSinglePacketError ->
-%%             SendSinglePacketError
-%%     end;
 receive_loop0(#ready_for_query{}, {result, Result}, _Fun, _Acc0, _DecodeOptions, __Socket) ->
     Result;
 receive_loop0(#error_response{fields = Fields}, LoopState, _Fun, _Acc0, _DecodeOptions,
@@ -647,8 +648,8 @@ receive_loop0(#error_response{fields = Fields}, LoopState, _Fun, _Acc0, _DecodeO
     % - when we asked for the statement description
     % - when MaxRowsStep > 0
     NeedSync = case LoopState of
-                   {parse_complete_with_params, _Args} -> true;
-                   {parameter_description_with_params, _Parameters} -> true;
+                   {parse_complete_with_params, _Query, _Args} -> true;
+                   {parameter_description_with_params, _Query, _Parameters} -> true;
                    _ -> false
                end,
     case NeedSync of
@@ -775,17 +776,6 @@ simple_query(Conn=#conn{socket_module=SocketModule,
             Error
     end.
 
-
-%% % This function should always return true as set or reset may only fail because
-%% % we are within a failed transaction.
-%% % If set failed because the transaction was aborted, the query will fail
-%% % (unless it is a rollback).
-%% % If set succeeded within a transaction, but the query failed, the reset may
-%% % fail but set only applies to the transaction anyway.
-%% -spec set_succeeded_or_within_failed_transaction({set, []} | {error, pgsql_error:pgsql_error()}) -> boolean().
-%% set_succeeded_or_within_failed_transaction({set, []}) -> true;
-%% set_succeeded_or_within_failed_transaction({error, {pgsql_error, _} = Error}) ->
-%%     pgsql_error:is_in_failed_sql_transaction(Error).
 
 simple_query_loop(#conn{socket=Socket}=Conn, Acc) ->
     case simple_receive_message(Socket, Conn, []) of

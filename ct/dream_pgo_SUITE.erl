@@ -15,7 +15,8 @@
                        Until(I) -> case X of true -> ok; false -> timer:sleep(10), Until(I+1) end end)(0)).
 
 all() -> [checkout_checkin, checkout_break, recheckout, kill_socket, kill_pid,
-          checkout_kill, checkout_disconnect, checkout_query_crash].
+          checkout_kill, checkout_disconnect, checkout_query_crash,
+          password_as_function, query_timeout].
 
 init_per_suite(Config) ->
     Config.
@@ -23,11 +24,22 @@ init_per_suite(Config) ->
 end_per_suite(_Config) ->
     ok.
 
+init_per_testcase(password_as_function, Config) ->
+    Pool = pool_password_as_function,
+    application:ensure_all_started(dream_pgo),
+    dream_pgo_sup:start_child(Pool, #{pool_size => 1,
+                                database => ?DATABASE,
+                                user => ?USER,
+                                password => fun() -> ?PASSWORD end}),
+    Tid = dream_pgo_pool:tid(Pool),
+    ?UNTIL((catch ets:info(Tid, size)) =:= 1),
+    [{pool_name, Pool} | Config];
 init_per_testcase(T, Config) when T =:= checkout_break ;
                                   T =:= checkout_query_crash ;
                                   T =:= recheckout ;
                                   T =:= kill_socket ;
-                                  T =:= kill_pid ->
+                                  T =:= kill_pid ;
+                                  T =:= query_timeout ->
     Pool = list_to_atom("pool_" ++ atom_to_list(T)),
     application:ensure_all_started(dream_pgo),
     dream_pgo_sup:start_child(Pool, #{pool_size => 1,
@@ -223,6 +235,11 @@ checkout_disconnect(Config) ->
 
     ok.
 
+password_as_function(Config) ->
+    Name = ?config(pool_name, Config),
+    ?assertMatch(#{rows := [{1}]}, dream_pgo:query("select 1", [], #{pool => Name})),
+    ok.
+
 %% regression test. this would fail with `unexpected message` response to the create query
 checkout_query_crash(Config) ->
     Name = ?config(pool_name, Config),
@@ -241,4 +258,13 @@ checkout_query_crash(Config) ->
                                         dream_pgo:query("create temporary table foo (_id integer)", []))
                          end),
 
+    ok.
+
+query_timeout(Config) ->
+    Name = ?config(pool_name, Config),
+    %% Use a very short deadline so the query times out
+    Result = dream_pgo:query("SELECT pg_sleep(5)", [],
+                       #{pool => Name,
+                         pool_options => [{timeout, 500}]}),
+    ?assertEqual({error, query_timeout}, Result),
     ok.

@@ -10,10 +10,10 @@ all() -> [select, insert].
 init_per_suite(Config) ->
     application:ensure_all_started(dream_pgo),
 
-    {ok, _} = dream_pgo_sup:start_child(default, #{pool_size => 1,
-                                             database => "test",
-                                             user => "test",
-                                             password => "password"}),
+    {ok, _} = dream_pgo_sup:start_child(dream_pgo_default, #{pool_size => 1,
+                                                 database => "test",
+                                                 user => "test",
+                                                 password => "password"}),
 
     ?assertMatch(#{command := create},
                  dream_pgo:query("CREATE TYPE mood AS ENUM ('sad', 'ok', 'happy')")),
@@ -25,7 +25,7 @@ end_per_suite(_Config) ->
 
     application:stop(dream_pgo),
 
-    dream_pgo_test_utils:clear_types(default),
+    dream_pgo_test_utils:clear_types(dream_pgo_default),
 
     ok.
 

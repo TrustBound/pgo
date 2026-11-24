@@ -29,18 +29,22 @@
 
 -export_type([result/0,
               error/0,
+              pool/0,
+              row/0,
+              options/0,
               pool_config/0,
-              decode_fun/0]).
+              decode_fun/0,
+              decode_option/0]).
 
 -type result() :: #{command := atom(),
-                    num_rows := integer() | table,
-                    rows := list()} | {error, error()} | {error, any()}.
+                    num_rows := non_neg_integer() | table,
+                    rows := [row()]} | {error, error()} | {error, any()}.
 
 -type error() :: {dream_pgo_error, #{error_field() => binary()}} | pg_types:encoding_error().
 
 -type pool() :: atom().
 
--type row() :: list() | map().
+-type row() :: tuple() | map().
 -type fields() :: [#row_description_field{}].
 -type decode_fun() :: fun((row(), fields()) -> row()) | undefined.
 
@@ -60,7 +64,7 @@
 -type pool_config() :: #{host => string(),
                          port => integer(),
                          user => string(),
-                         password => string(),
+                         password => string() | fun(() -> iodata()),
                          database => string(),
                          application_name => atom() | iodata(),
 
@@ -99,12 +103,19 @@ query(Query, Params) ->
 query(Query, Params, Options) ->
     case get(dream_pgo_transaction_connection) of
         undefined ->
-            Pool = maps:get(pool, Options, default),
+            Pool = maps:get(pool, Options, dream_pgo_default),
             PoolOptions = maps:get(pool_options, Options, []),
             case checkout(Pool, PoolOptions) of
-                {ok, Ref, Conn} ->
+                {ok, Ref={_, _, _, Holder}, Conn} ->
                     try
                         query(Query, Params, Options, Conn)
+                    of
+                        {error, closed} ->
+                            maybe_timeout_error(Holder);
+                        {error, einval} ->
+                            maybe_timeout_error(Holder);
+                        Result ->
+                            Result
                     after
                         checkin(Ref, Conn)
                     end;
@@ -150,7 +161,7 @@ transaction(Fun) ->
 %% @equiv transaction(default, Fun, Options)
 -spec transaction(fun(() -> any()), options()) -> any() | {error, any()}.
 transaction(Fun, Options) when is_function(Fun) ->
-    Pool = maps:get(pool, Options, default),
+    Pool = maps:get(pool, Options, dream_pgo_default),
     transaction(Pool, Fun, Options).
 
 %% @doc Runs a function, passing it a connection, in a SQL transaction.
@@ -174,23 +185,28 @@ new_transaction(Pool, Fun, Options) ->
                        #{is_recording => if DoTrace -> true; true -> false end,
                          attributes => TraceAttributes},
                        fun(_) ->
-                               try
-                                   #{command := 'begin'} = dream_pgo_handler:extended_query(Conn, "BEGIN", [],
-                                                                                      #{queue_time => undefined}),
-                                   put(dream_pgo_transaction_connection, Conn),
-                                   Result = Fun(),
-                                   case dream_pgo_handler:extended_query(Conn, "COMMIT", [],
-                                                                   #{queue_time => undefined}) of
-                                       #{command := commit} -> Result;
-                                       #{command := rollback} -> Result
-                                   end
-                               catch
-                                   Type:Reason:Stacktrace ->
-                                       dream_pgo_handler:extended_query(Conn, "ROLLBACK", [], #{queue_time => undefined}),
-                                       erlang:raise(Type, Reason, Stacktrace)
-                               after
-                                   checkin(Ref, Conn),
-                                   erase(dream_pgo_transaction_connection)
+                               Outcome =
+                                   try
+                                       #{command := 'begin'} = dream_pgo_handler:extended_query(Conn, "BEGIN", [],
+                                                                                          #{queue_time => undefined}),
+                                       put(dream_pgo_transaction_connection, Conn),
+                                       Result = Fun(),
+                                       case dream_pgo_handler:extended_query(Conn, "COMMIT", [],
+                                                                       #{queue_time => undefined}) of
+                                           #{command := commit} -> {committed, Result};
+                                           #{command := rollback} -> rolled_back
+                                       end
+                                   catch
+                                       Type:Reason:Stacktrace ->
+                                           dream_pgo_handler:extended_query(Conn, "ROLLBACK", [], #{queue_time => undefined}),
+                                           erlang:raise(Type, Reason, Stacktrace)
+                                   after
+                                       checkin(Ref, Conn),
+                                       erase(dream_pgo_transaction_connection)
+                                   end,
+                               case Outcome of
+                                   {committed, R} -> R;
+                                   rolled_back -> erlang:error(transaction_rolled_back)
                                end
                        end);
         {error, _}=E ->
@@ -213,16 +229,16 @@ with_conn(Conn, Fun) ->
     end.
 
 %% @doc Returns a connection from the pool.
--spec checkout(atom()) -> {ok, dream_pgo_pool:pool_ref(), dream_pgo_pool:conn()} | {error, any()}.
+-spec checkout(atom()) -> {ok, dream_pgo_pool:ref(), dream_pgo_pool:conn()} | {error, any()}.
 checkout(Pool) ->
     dream_pgo_pool:checkout(Pool, []).
 
--spec checkout(atom(), [pool_option()]) -> {ok, dream_pgo_pool:pool_ref(), dream_pgo_pool:conn()} | {error, any()}.
+-spec checkout(atom(), [pool_option()]) -> {ok, dream_pgo_pool:ref(), dream_pgo_pool:conn()} | {error, any()}.
 checkout(Pool, Options) ->
     dream_pgo_pool:checkout(Pool, Options).
 
 %% @doc Return a checked out connection to its pool
--spec checkin(dream_pgo_pool:pool_ref(), dream_pgo_pool:conn()) -> ok.
+-spec checkin(dream_pgo_pool:ref(), dream_pgo_pool:conn()) -> ok.
 checkin(Ref, Conn) ->
     dream_pgo_pool:checkin(Ref, Conn, []).
 
@@ -231,7 +247,14 @@ checkin(Ref, Conn) ->
 break(Conn) ->
     dream_pgo_connection:break(Conn).
 
+maybe_timeout_error(Holder) ->
+    case ets:info(Holder, size) of
+        undefined -> {error, query_timeout};
+        _ -> {error, closed}
+    end.
+
 format_error(Error=#{module := Module}) ->
     Module:format_error(Error);
 format_error(Error) ->
     io_lib:format("Unknown error: ~p", [Error]).
+

@@ -26,7 +26,7 @@ init_per_group(erl_datetime, Config) ->
 
     {ok, _} = application:ensure_all_started(dream_pgo),
 
-    {ok, _} = dream_pgo_sup:start_child(default, #{pool_size => 1,
+    {ok, _} = dream_pgo_sup:start_child(dream_pgo_default, #{pool_size => 1,
                                                    database => "test",
                                                    user => "test",
                                                    password => "password"}),
@@ -37,7 +37,7 @@ init_per_group(as_micro, Config) ->
 
     application:ensure_all_started(dream_pgo),
 
-    {ok, _} = dream_pgo_sup:start_child(default, #{pool_size => 1,
+    {ok, _} = dream_pgo_sup:start_child(dream_pgo_default, #{pool_size => 1,
                                              database => "test",
                                              user => "test",
                                              password => "password"}),
@@ -48,10 +48,10 @@ init_per_group(as_integer, Config) ->
 
     application:ensure_all_started(dream_pgo),
 
-    {ok, _} = dream_pgo_sup:start_child(default, #{pool_size => 1,
-                                             database => "test",
-                                             user => "test",
-                                             password => "password"}),
+    {ok, _} = dream_pgo_sup:start_child(dream_pgo_default, #{pool_size => 1,
+                                                 database => "test",
+                                                 user => "test",
+                                                 password => "password"}),
     Config;
 init_per_group(as_float, Config) ->
     application:load(pg_types),
@@ -59,10 +59,10 @@ init_per_group(as_float, Config) ->
 
     application:ensure_all_started(dream_pgo),
 
-    {ok, _} = dream_pgo_sup:start_child(default, #{pool_size => 1,
-                                             database => "test",
-                                             user => "test",
-                                             password => "password"}),
+    {ok, _} = dream_pgo_sup:start_child(dream_pgo_default, #{pool_size => 1,
+                                                 database => "test",
+                                                 user => "test",
+                                                 password => "password"}),
     Config.
 
 end_per_group(_, _Config) ->
@@ -71,7 +71,7 @@ end_per_group(_, _Config) ->
     application:stop(pg_types),
     application:unload(pg_types),
 
-    dream_pgo_test_utils:clear_types(default),
+    dream_pgo_test_utils:clear_types(dream_pgo_default),
 
     ok.
 

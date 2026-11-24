@@ -15,11 +15,12 @@ all() ->
 
 groups() ->
     [{clear, [], cases()},
-     {ssl, [], [int4_range, exceptions]},
+     {ssl, [], [int4_range, exceptions, ssl_connect_failure_closes_socket]},
      {domain_socket, [], [int4_range]}].
 
 cases() ->
-    [exceptions, select, insert_update, text_types,
+    [transaction_returns_value, transaction_aborted_raises,
+     exceptions, select, insert_update, text_types,
      rows_as_maps, json_jsonb, types,
      int4_range, ts_range, tstz_range, numerics,
      hstore, records, circle, path, polygon, line,
@@ -38,51 +39,51 @@ end_per_suite(_Config) ->
 init_per_group(clear, Config) ->
     application:ensure_all_started(dream_pgo),
 
-    {ok, _} = dream_pgo_sup:start_child(default, #{pool_size => 1,
-                                             port => 5432,
-                                             database => "test",
-                                             user => "test",
-                                             password => "password"}),
+    {ok, _} = dream_pgo_sup:start_child(dream_pgo_default, #{pool_size => 1,
+                                                 port => 5432,
+                                                 database => "test",
+                                                 user => "test",
+                                                 password => "password"}),
 
     Config;
 init_per_group(ssl, Config) ->
     application:ensure_all_started(dream_pgo),
-    {ok, _} = dream_pgo_sup:start_child(default, #{pool_size => 1,
-                                             port => 5434,
-                                             ssl => true,
-                                             ssl_options => [{verify_type, verify_peer},
-                                                             {cacertfile, "../../../../test/certs/server.crt"},
-                                                             {verify_fun, {fun (_, valid, U) ->
-                                                                                   {valid, U};
-                                                                               (_, valid_peer, U) ->
-                                                                                   {valid, U};
-                                                                               (_, {bad_cert, selfsigned_peer}, U) ->
-                                                                                   {valid, U};
-                                                                               (_, Reason, _U) ->
-                                                                                   {fail, Reason}
-                                                                           end, []}}
-                                                            ],
-                                             database => "test",
-                                             user => "test",
-                                             password => "password"}),
+    {ok, _} = dream_pgo_sup:start_child(dream_pgo_default, #{pool_size => 1,
+                                                 port => 5434,
+                                                 ssl => true,
+                                                 ssl_options => [{verify_type, verify_peer},
+                                                                 {cacertfile, "../../../../test/certs/server.crt"},
+                                                                 {verify_fun, {fun (_, valid, U) ->
+                                                                                       {valid, U};
+                                                                                   (_, valid_peer, U) ->
+                                                                                       {valid, U};
+                                                                                   (_, {bad_cert, selfsigned_peer}, U) ->
+                                                                                       {valid, U};
+                                                                                   (_, Reason, _U) ->
+                                                                                       {fail, Reason}
+                                                                               end, []}}
+                                                                ],
+                                                 database => "test",
+                                                 user => "test",
+                                                 password => "password"}),
 
     Config;
 init_per_group(domain_socket, Config) ->
     application:ensure_all_started(dream_pgo),
 
-    {ok, _} = dream_pgo_sup:start_child(default, #{pool_size => 1,
-                                             port => 5432,
-                                             host => "/tmp/postgresql",
-                                             database => "test",
-                                             user => "test",
-                                             password => "password"}),
+    {ok, _} = dream_pgo_sup:start_child(dream_pgo_default, #{pool_size => 1,
+                                                 port => 5432,
+                                                 host => "/tmp/postgresql",
+                                                 database => "test",
+                                                 user => "test",
+                                                 password => "password"}),
 
     Config.
 
 
 end_per_group(Group, _Config) when Group =:= ssl ; Group =:= domain_socket ->
     application:stop(dream_pgo),
-    dream_pgo_test_utils:clear_types(default),
+    dream_pgo_test_utils:clear_types(dream_pgo_default),
     ok;
 end_per_group(_, _Config) ->
     dream_pgo:query("drop table tmp"),
@@ -95,7 +96,7 @@ end_per_group(_, _Config) ->
 
     application:stop(dream_pgo),
 
-    dream_pgo_test_utils:clear_types(default),
+    dream_pgo_test_utils:clear_types(dream_pgo_default),
 
     ok.
 
@@ -198,6 +199,26 @@ exceptions(_Config) ->
 
     ok.
 
+ssl_connect_failure_closes_socket(_Config) ->
+    %% Connect with invalid SSL options to force ssl:connect/3 to fail
+    %% after the server accepts the SSL request. Verify the TCP socket
+    %% is properly closed and not leaked.
+    TcpPortsBefore = [P || P <- erlang:ports(),
+                           erlang:port_info(P, name) =:= {name, "tcp_inet"}],
+    {error, _} = dream_pgo_handler:open(default,
+                                  #{host => "127.0.0.1",
+                                    port => 5434,
+                                    user => "test",
+                                    password => "password",
+                                    database => "test",
+                                    ssl => true,
+                                    ssl_options => [{cacertfile, "/nonexistent/ca.pem"},
+                                                    {verify, verify_peer}]}),
+    TcpPortsAfter = [P || P <- erlang:ports(),
+                          erlang:port_info(P, name) =:= {name, "tcp_inet"}],
+    ?assertEqual(length(TcpPortsBefore), length(TcpPortsAfter)),
+    ok.
+
 select(_Config) ->
     {error, {Module, Reason}} = dream_pgo:query("select $1", []),
     ?assertEqual("parameters needed for query not equal to number of arguments 1 != 0", Module:format_error(Reason)),
@@ -292,6 +313,8 @@ types(_Config) ->
     ?assertMatch(#{command := insert}, dream_pgo:query("insert into types (id, an_integer, a_bigint, a_text, a_uuid, a_bytea, a_real) values ($1, $2, $3, $4, $5, $6, $7)",
                                                   [10, 42, 1099511627776, <<"And in the end, the love you take is equal to the love you make">>, ?BIN_UUID, <<"deadbeef">>, 3.1415])),
 
+
+    ?assertMatch(#{command := insert}, dream_pgo:query("insert into types (id, an_integer, a_bigint, a_text, a_uuid, a_bytea, a_real) values ($1, $2, $3, $4, $5, $6, $7)", [101, null, null, null, null, "deadbeef", null])),
 
     R = dream_pgo:query("select * from types where id = 10"),
     ?assertMatch(#{command := select, rows := [_Row]}, R),
@@ -439,7 +462,8 @@ bit_string(_Config) ->
     ?assertMatch(#{rows := [{<<1:1,1:1,0:1>>}]}, dream_pgo:query("SELECT bit '110' :: varbit", [])).
 
 arrays(_Config) ->
-    ?assertMatch(#{rows := [{[<<"s1">>,null]}]}, dream_pgo:query("SELECT $1::text[]", [[<<"s1">>, null]])).
+    ?assertMatch(#{rows := [{[<<"s1">>,null]}]}, dream_pgo:query("SELECT $1::text[]", [[<<"s1">>, null]])),
+    ?assertMatch(#{rows := [{[{array,[{array,[<<"s1">>,null]}]}]}]}, dream_pgo:query("SELECT $1::text[][][]", [[{array, [{array, [<<"s1">>, null]}]}]])).
 
 tsvector(_Config) ->
     ?assertMatch(#{rows := [{[{<<"fat">>,[{2,null}]},{<<"rat">>,[{3,null}]}]}]},
@@ -456,7 +480,7 @@ tsvector(_Config) ->
                                                     {<<"fat">>,[{2,'B'},{4,'C'}]}]])).
 
 query_arity_4(_Config) ->
-    {ok, Ref, Conn} = dream_pgo:checkout(default),
+    {ok, Ref, Conn} = dream_pgo:checkout(dream_pgo_default),
 
     ?assertMatch(#{rows := [{1}]}, dream_pgo:query("select 1", [], #{}, Conn)),
 
@@ -468,4 +492,22 @@ netmask(_Config) ->
     ?assertMatch(#{rows := [{{{192,168,0,1},24}}]},
                  dream_pgo:query("SELECT '192.168.0.1/24'::inet")),
 
+    ok.
+
+transaction_returns_value(_Config) ->
+    ?assertEqual(42, dream_pgo:transaction(fun() -> 42 end)),
+    ?assertEqual(ok, dream_pgo:transaction(fun() ->
+                                         ?assertMatch(#{rows := [{1}]}, dream_pgo:query("select 1::int")),
+                                         ok
+                                     end)),
+    ok.
+
+transaction_aborted_raises(_Config) ->
+    ?assertError(transaction_rolled_back,
+                 dream_pgo:transaction(fun() ->
+                                     {error, _} = dream_pgo:query("select 1/0"),
+                                     ok
+                                 end)),
+
+    ?assertMatch(#{rows := [{1}]}, dream_pgo:query("select 1::int")),
     ok.
