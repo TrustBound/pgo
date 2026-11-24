@@ -188,8 +188,13 @@ default_ssl_options(Options, UserSSLOptions) ->
     merge_ssl_options(Defaults, UserSSLOptions).
 
 merge_ssl_options(Defaults, UserOptions) ->
-    UserKeys = proplists:get_keys(UserOptions),
-    [Opt || {Key, _} = Opt <- Defaults, not lists:member(Key, UserKeys)] ++ UserOptions.
+    Replaced = lists:flatmap(fun replaced_defaults/1, proplists:get_keys(UserOptions)),
+    [Opt || {Key, _} = Opt <- Defaults, not lists:member(Key, Replaced)] ++ UserOptions.
+
+%% The defaults that a user option replaces. ssl ignores `cacertfile' when
+%% `cacerts' is set, so a user `cacertfile' also replaces the default `cacerts'.
+replaced_defaults(cacertfile) -> [cacertfile, cacerts];
+replaced_defaults(Key) -> [Key].
 
 setup_startup(Conn=#conn{socket_module=SocketModule,
                          socket=Socket,

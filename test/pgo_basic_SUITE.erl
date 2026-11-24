@@ -15,7 +15,8 @@ all() ->
 
 groups() ->
     [{clear, [], cases()},
-     {ssl, [], [int4_range, exceptions, ssl_connect_failure_closes_socket]},
+     {ssl, [], [int4_range, exceptions, ssl_connect_failure_closes_socket,
+                 ssl_cacertfile_replaces_default_cacerts]},
      {domain_socket, [], [int4_range]}].
 
 cases() ->
@@ -209,6 +210,20 @@ ssl_connect_failure_closes_socket(_Config) ->
     TcpPortsAfter = [P || P <- erlang:ports(),
                           erlang:port_info(P, name) =:= {name, "tcp_inet"}],
     ?assertEqual(length(TcpPortsBefore), length(TcpPortsAfter)),
+    ok.
+
+ssl_cacertfile_replaces_default_cacerts(_Config) ->
+    %% The test CA is not in the system CA store, so the connection only
+    %% succeeds if the user cacertfile is used instead of the default cacerts.
+    %% The default peer and host name checks stay on.
+    {ok, Conn} = pgo_handler:open(default, #{host => "localhost",
+                                             port => 5434,
+                                             user => "test",
+                                             password => "password",
+                                             database => "test",
+                                             ssl => true,
+                                             ssl_options => [{cacertfile, "../../../../test/certs/ca.crt"}]}),
+    pgo_handler:close(Conn),
     ok.
 
 select(_Config) ->
