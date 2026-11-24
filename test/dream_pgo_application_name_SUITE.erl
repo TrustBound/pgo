@@ -1,4 +1,4 @@
--module(pgo_application_name_SUITE).
+-module(dream_pgo_application_name_SUITE).
 
 -compile(export_all).
 
@@ -12,11 +12,11 @@ all() -> [caller_name, no_name_gives_node_name, pool_option,
           mixed_case_no_duplicate_parameter_names].
 
 init_per_suite(Config) ->
-    application:ensure_all_started(pgo),
+    application:ensure_all_started(dream_pgo),
     Config.
 
 end_per_suite(_Config) ->
-    application:stop(pgo),
+    application:stop(dream_pgo),
     ok.
 
 caller_name(_Config) ->
@@ -62,7 +62,7 @@ unsorted_parameters(_Config) ->
     ?assertEqual(<<"Europe/Paris">>, setting(Pool, <<"timezone">>)).
 
 no_duplicate_parameter_names(_Config) ->
-    Params = pgo_handler:startup_parameters(
+    Params = dream_pgo_handler:startup_parameters(
                #{user => "test",
                  database => "test",
                  application_name => <<"other">>,
@@ -82,7 +82,7 @@ mixed_case_caller_name(_Config) ->
                                   #{connection_parameters => [{<<"Application_Name">>, <<"billing">>}]})).
 
 mixed_case_no_duplicate_parameter_names(_Config) ->
-    Params = pgo_handler:startup_parameters(
+    Params = dream_pgo_handler:startup_parameters(
                #{user => "test",
                  database => "test",
                  application_name => <<"other">>,
@@ -97,7 +97,7 @@ mixed_case_no_duplicate_parameter_names(_Config) ->
                   {<<"User">>, <<"other">>}], Params).
 
 application_name(Pool, PoolConfig) ->
-    {ok, _} = pgo_sup:start_child(Pool, maps:merge(#{pool_size => 1,
+    {ok, _} = dream_pgo_sup:start_child(Pool, maps:merge(#{pool_size => 1,
                                                            port => 5432,
                                                            database => "test",
                                                            user => "test",
@@ -106,5 +106,5 @@ application_name(Pool, PoolConfig) ->
     setting(Pool, <<"application_name">>).
 
 setting(Pool, Name) ->
-    #{rows := [{Value}]} = pgo:query(<<"select current_setting($1)">>, [Name], #{pool => Pool}),
+    #{rows := [{Value}]} = dream_pgo:query(<<"select current_setting($1)">>, [Name], #{pool => Pool}),
     Value.

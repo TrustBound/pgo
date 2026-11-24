@@ -1,4 +1,4 @@
--module(pgo_test_utils).
+-module(dream_pgo_test_utils).
 
 -export([clear_types/1]).
 

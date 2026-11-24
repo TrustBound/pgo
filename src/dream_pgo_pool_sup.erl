@@ -1,4 +1,4 @@
--module(pgo_pool_sup).
+-module(dream_pgo_pool_sup).
 
 -behaviour(supervisor).
 
@@ -20,16 +20,16 @@ whereis_child(Sup, Id) ->
 init([QueueTid, PoolPid, PoolName, PoolConfig]) ->
     Size = maps:get(pool_size, PoolConfig, 1),
     Children = [#{id => connection_sup,
-                  start => {pgo_connection_sup, start_link, [QueueTid, PoolPid, PoolName,
+                  start => {dream_pgo_connection_sup, start_link, [QueueTid, PoolPid, PoolName,
                                                              PoolConfig]},
                   type => supervisor,
                   shutdown => 5000},
                 #{id => connection_starter,
-                  start => {pgo_connection_starter, start_link, [PoolPid, Size]},
+                  start => {dream_pgo_connection_starter, start_link, [PoolPid, Size]},
                   type => worker,
                   shutdown => 5000},
                 #{id => type_server,
-                  start => {pgo_type_server, start_link, [PoolName, PoolConfig]},
+                  start => {dream_pgo_type_server, start_link, [PoolName, PoolConfig]},
                   type => worker,
                   shutdown => 5000}],
     {ok, {{rest_for_one, 5, 10}, Children}}.

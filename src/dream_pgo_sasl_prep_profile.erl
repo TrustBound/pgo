@@ -7,7 +7,7 @@
 %%% https://tools.ietf.org/html/rfc4013
 %%% @end
 
--module(pgo_sasl_prep_profile).
+-module(dream_pgo_sasl_prep_profile).
 
 -export([ validate/1
         ]).

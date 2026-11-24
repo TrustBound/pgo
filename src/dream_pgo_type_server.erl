@@ -1,4 +1,4 @@
--module(pgo_type_server).
+-module(dream_pgo_type_server).
 
 -export([start_link/2,
          reload/1,
@@ -9,12 +9,12 @@
          ready/3,
          terminate/3]).
 
--include("pgo_internal.hrl").
+-include("dream_pgo_internal.hrl").
 -include_lib("pg_types/include/pg_types.hrl").
 -include_lib("kernel/include/logger.hrl").
 
 -record(data, {pool        :: atom(),
-               pool_config  :: pgo:pool_config(),
+               pool_config  :: dream_pgo:pool_config(),
                last_reload :: integer() | undefined}).
 
 start_link(Pool, PoolConfig) ->
@@ -61,7 +61,7 @@ terminate(_, _, _Data) ->
     ok.
 
 load(Pool, LastReload, RequestTime, PoolConfig) when LastReload < RequestTime ->
-    try pgo_handler:open(Pool, PoolConfig) of
+    try dream_pgo_handler:open(Pool, PoolConfig) of
         {ok, Conn=#conn{parameters=Parameters}} ->
             case load_and_update_types(Conn, Pool) of
                 failed ->
@@ -91,7 +91,7 @@ load(_, _, _, _) ->
 
 load_and_update_types(Conn, Pool) ->
     try
-        case pgo_handler:simple_query(Conn, ?BOOTSTRAP_QUERY) of
+        case dream_pgo_handler:simple_query(Conn, ?BOOTSTRAP_QUERY) of
             {ok, Oids} ->
                 [#type_info{oid=binary_to_integer(Oid),
                             pool=Pool,
@@ -105,16 +105,16 @@ load_and_update_types(Conn, Pool) ->
                             base_oid=binary_to_integer(BaseOid),
                             comp_oids=parse_array_oids(CompOids)}
                  || [Oid, Name, Send, Receive, Len, Output, Input, ArrayOid, BaseOid, CompOids] <- Oids];
-            {error, {pgo_error, PgoError}} ->
+            {error, {dream_pgo_error, PgoError}} ->
                 ?LOG_WARNING("Unable to load type information. query failed with error: ~p", [PgoError]),
                 failed
         end
     catch
         Class:Reason:Stacktrace ->
-            ?LOG_WARNING("Unable to load type information. pgo will not function properly: ~s", [erl_error:format_exception(Class, Reason, Stacktrace)]),
+            ?LOG_WARNING("Unable to load type information. dream_pgo will not function properly: ~s", [erl_error:format_exception(Class, Reason, Stacktrace)]),
             failed
     after
-        pgo_handler:close(Conn)
+        dream_pgo_handler:close(Conn)
     end.
 
 parse_array_oids(null) ->

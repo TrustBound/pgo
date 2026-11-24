@@ -1,4 +1,4 @@
--module(pgo_connection).
+-module(dream_pgo_connection).
 
 -behaviour(gen_statem).
 
@@ -20,14 +20,14 @@
          dequeued/3,
          terminate/3]).
 
--include("pgo_internal.hrl").
+-include("dream_pgo_internal.hrl").
 -include_lib("kernel/include/logger.hrl").
 
 -record(data, {monitor :: reference() | undefined,
                ref :: reference() | undefined,
                queue :: reference(),
                conn :: #conn{} | undefined,
-               pool_config :: pgo:pool_config(),
+               pool_config :: dream_pgo:pool_config(),
                holder :: ets:tid() | undefined,
                broker :: atom(),
                pool :: pid(),
@@ -41,11 +41,11 @@ pool_name({_Pid, Holder}) ->
     [PoolName] = ets:lookup(Holder, pool_name),
     PoolName.
 
--spec ping(pid(), ets:tid(), pgo_pool:conn()) -> ok.
+-spec ping(pid(), ets:tid(), dream_pgo_pool:conn()) -> ok.
 ping(Pid, Holder, _Conn) ->
     gen_statem:cast(Pid, {ping, Holder}).
 
--spec stop(pid(), ets:tid(), pgo_pool:conn()) -> ok.
+-spec stop(pid(), ets:tid(), dream_pgo_pool:conn()) -> ok.
 stop(Pid, Holder, _Conn) ->
     gen_statem:cast(Pid, {stop, Holder}).
 
@@ -54,15 +54,15 @@ disconnect(Pid, Holder, _Err, _Conn) ->
     %% maybe log Err?
     gen_statem:cast(Pid, {disconnect, Holder}).
 
--spec reload_types(pgo_pool:conn()) -> ok.
+-spec reload_types(dream_pgo_pool:conn()) -> ok.
 reload_types(#conn{owner=Pid}) ->
     gen_statem:call(Pid, reload_types).
 
--spec break(pgo_pool:conn(), pgo_pool:ref()) -> ok.
+-spec break(dream_pgo_pool:conn(), dream_pgo_pool:ref()) -> ok.
 break(#conn{owner=Pid}, {_Pool, _Ref, _Deadline, Holder}) ->
     gen_statem:cast(Pid, {break, Holder}).
 
--spec break(pgo_pool:conn()) -> ok.
+-spec break(dream_pgo_pool:conn()) -> ok.
 break(#conn{owner=Pid}) ->
     gen_statem:cast(Pid, break).
 
@@ -87,9 +87,9 @@ disconnected(EventType, _, Data=#data{broker=Broker,
                                       pool_config=PoolConfig}) when EventType =:= internal
                                                                     ; EventType =:= timeout
                                                                     ; EventType =:= state_timeout ->
-    try pgo_handler:open(Broker, PoolConfig) of
+    try dream_pgo_handler:open(Broker, PoolConfig) of
         {ok, Conn} ->
-            Holder = pgo_pool:update(Pool, QueueTid, ?MODULE, Conn),
+            Holder = dream_pgo_pool:update(Pool, QueueTid, ?MODULE, Conn),
             {_, B1} = backoff:succeed(B),
             {next_state, enqueued, Data#data{conn=Conn,
                                              holder=Holder,
@@ -133,9 +133,9 @@ handle_event(cast, {ping, Holder}, Data=#data{pool=Pool,
                                               holder=Holder,
                                               queue=QueueTid,
                                               conn=Conn}) ->
-    case pgo_handler:ping(Conn) of
+    case dream_pgo_handler:ping(Conn) of
         ok ->
-            NewHolder = pgo_pool:update(Pool, QueueTid, ?MODULE, Conn),
+            NewHolder = dream_pgo_pool:update(Pool, QueueTid, ?MODULE, Conn),
             {keep_state, Data#data{holder=NewHolder}};
         {error, Reason} ->
             ?LOG_INFO(#{at => ping,
@@ -149,7 +149,7 @@ handle_event(cast, {ping, _}, _Data) ->
     keep_state_and_data;
 handle_event(cast, {stop, Holder}, Data=#data{holder=Holder,
                                               conn=Conn}) ->
-    pgo_handler:close(Conn),
+    dream_pgo_handler:close(Conn),
     {stop, Data#data{conn=undefined,
                      holder=undefined}};
 %% ignore `stop' for a different holder -- means it is an old message
@@ -165,13 +165,13 @@ handle_event(cast, {break, Holder}, Data=#data{holder=Holder}) ->
 handle_event(cast, break, Data) ->
     close_and_reopen(Data);
 handle_event({call, From}, reload_types, #data{sup=Sup}) ->
-    TypeServer = pgo_pool_sup:whereis_child(Sup, type_server),
-    pgo_type_server:reload(TypeServer),
+    TypeServer = dream_pgo_pool_sup:whereis_child(Sup, type_server),
+    dream_pgo_type_server:reload(TypeServer),
     {keep_state_and_data, [{reply, From, ok}]};
 handle_event(info, {Tag, Socket, Binary}, Data=#data{conn=Conn=#conn{socket=Socket,
                                                                      socket_module=SocketModule}}) when Tag =:= tcp orelse Tag =:= ssl ->
-    Conn = pgo_handler:process_active_data(Binary, Conn, fun(_) -> ok end),
-    _ = pgo_handler:setopts(SocketModule, Socket, [{active, once}]),
+    Conn = dream_pgo_handler:process_active_data(Binary, Conn, fun(_) -> ok end),
+    _ = dream_pgo_handler:setopts(SocketModule, Socket, [{active, once}]),
     {keep_state, Data#data{conn=Conn}};
 handle_event(info, {Tag, _, _Binary}, _Data) when Tag =:= tcp orelse Tag =:= ssl ->
     %% ignore message from an old socket
@@ -192,13 +192,13 @@ handle_event(info, {ssl_closed, _}, _Data) ->
 terminate(_Reason, _, #data{conn=undefined}) ->
     ok;
 terminate(_Reason, _, #data{conn=Conn}) ->
-    pgo_handler:close(Conn),
+    dream_pgo_handler:close(Conn),
     ok.
 
 %%
 
 close_and_reopen(Data=#data{conn=Conn}) ->
-    pgo_handler:close(Conn),
+    dream_pgo_handler:close(Conn),
     {next_state, disconnected, Data#data{conn=undefined,
                                          holder=undefined},
      [{next_event, internal, connect}]}.
@@ -207,7 +207,7 @@ report_cb(#{at := ping,
             reason := Reason}) ->
     {"disconnecting after database failed ping with reason ~p", [Reason]};
 report_cb(#{at := connecting,
-            reason := {pgo_error, #{message := Message}}}) ->
+            reason := {dream_pgo_error, #{message := Message}}}) ->
     {"error connecting to database: ~s", [Message]};
 report_cb(#{at := connecting,
             reason := Reason}) ->

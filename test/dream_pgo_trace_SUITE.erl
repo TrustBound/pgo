@@ -1,4 +1,4 @@
--module(pgo_trace_SUITE).
+-module(dream_pgo_trace_SUITE).
 
 -compile(export_all).
 
@@ -10,9 +10,9 @@ all() ->
     [trace_query, trace_with_parent_query, trace_transaction, no_statement].
 
 init_per_suite(Config) ->
-    application:ensure_all_started(pgo),
+    application:ensure_all_started(dream_pgo),
     application:ensure_all_started(tls_certificate_check),
-    {ok, _} = pgo_sup:start_child(default, #{pool_size => 1,
+    {ok, _} = dream_pgo_sup:start_child(default, #{pool_size => 1,
                                              port => 5432,
                                              database => "test",
                                              user => "test",
@@ -24,7 +24,7 @@ init_per_suite(Config) ->
     Config.
 
 end_per_suite(_Config) ->
-    application:stop(pgo),
+    application:stop(dream_pgo),
     application:stop(opentelemetry),
     application:unload(opentelemetry),
     ok.
@@ -48,9 +48,9 @@ end_per_testcase(_, _Config) ->
 
 trace_query(_Config) ->
     ?assertMatch(#{rows := [{1}]},
-                 pgo:query("select '1'::int", [], #{})),
+                 dream_pgo:query("select '1'::int", [], #{})),
     #span{attributes={attributes, 128, infinity, 0, RecievedAttributes}} = 
-        ?assertReceive(<<"pgo:query/3">>),
+        ?assertReceive(<<"dream_pgo:query/3">>),
     #{<<"db.name">> := DbName,
       <<"db.statement">> := DbStatement,
       <<"db.system">> := DbSystem,
@@ -66,14 +66,14 @@ trace_with_parent_query(_Config) ->
     ?set_current_span(SpanCtx),
 
     ?assertMatch(#{rows := [{1}]},
-                 pgo:query("select '1'::int", [], #{trace => true})),
+                 dream_pgo:query("select '1'::int", [], #{trace => true})),
 
     receive
         {span, #span{name=Name,
                      parent_span_id=Parent,
                      attributes=_Attributes,
                      events=_TimeEvents}} when Parent =/= undefined ->
-            ?assertEqual(<<"pgo:query/3">>, Name)
+            ?assertEqual(<<"dream_pgo:query/3">>, Name)
     after
         5000 ->
             ct:fail(timeout)
@@ -93,13 +93,13 @@ trace_with_parent_query(_Config) ->
     ok.
 
 trace_transaction(_Config) ->
-    pgo:transaction(fun() ->
+    dream_pgo:transaction(fun() ->
         ?assertMatch(#{rows := [{1}]}, 
-            pgo:query("select '1'::int"))
+            dream_pgo:query("select '1'::int"))
     end, #{}),
 
     receive
-        {span, #span{name = <<"pgo:transaction/2">>,
+        {span, #span{name = <<"dream_pgo:transaction/2">>,
                      parent_span_id=Parent}} when Parent =:= undefined ->
             ok
     after
@@ -108,7 +108,7 @@ trace_transaction(_Config) ->
     end,
 
     #span{attributes={attributes, 128, infinity, 0, RecievedAttributes}} = 
-        ?assertReceive(<<"pgo:query/3">>),
+        ?assertReceive(<<"dream_pgo:query/3">>),
     #{<<"db.name">> := DbName,
       <<"db.statement">> := DbStatement,
       <<"db.system">> := DbSystem,
@@ -120,10 +120,10 @@ trace_transaction(_Config) ->
     ok.
 
 no_statement(_Config) ->
-    pgo:query("select '1'::int", [], #{include_statement_span_attribute => false}),
+    dream_pgo:query("select '1'::int", [], #{include_statement_span_attribute => false}),
 
     #span{attributes={attributes, 128, infinity, 0, RecievedAttributes}} = 
-        ?assertReceive(<<"pgo:query/3">>),
+        ?assertReceive(<<"dream_pgo:query/3">>),
     #{<<"db.name">> := DbName,
       <<"db.system">> := DbSystem,
       <<"db.user">> := DbUser} = RecievedAttributes,

@@ -1,4 +1,4 @@
--module(pgo_sup).
+-module(dream_pgo_sup).
 
 -behaviour(supervisor).
 
@@ -28,8 +28,8 @@ init([]) ->
     SupFlags = #{strategy => simple_one_for_one,
                  intensity => 5,
                  period => 10},
-    ChildSpec = #{id => pgo_pool,
-                  start => {pgo_pool, start_link, []},
+    ChildSpec = #{id => dream_pgo_pool,
+                  start => {dream_pgo_pool, start_link, []},
                   shutdown => 1000},
     {ok, {SupFlags, [ChildSpec]}}.
 

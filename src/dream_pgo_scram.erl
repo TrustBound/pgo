@@ -12,7 +12,7 @@
 %%% </ul>
 %%% @end
 
--module(pgo_scram).
+-module(dream_pgo_scram).
 -export([get_nonce/1,
          get_client_first/2,
          get_client_final/4,
@@ -80,7 +80,7 @@ get_client_final(SrvFirst, ClientNonce, UserName, Password) ->
     Salt = proplists:get_value(salt, SrvFirst),
     I = proplists:get_value(i, SrvFirst),
 
-    SaltedPassword = hi(pgo_sasl_prep_profile:validate(Password), Salt, I),
+    SaltedPassword = hi(dream_pgo_sasl_prep_profile:validate(Password), Salt, I),
     ClientKey = hmac(SaltedPassword, "Client Key"),
     StoredKey = h(ClientKey),
     ClientFirstBare = client_first_bare(UserName, ClientNonce),

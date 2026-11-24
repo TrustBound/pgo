@@ -1,4 +1,4 @@
--module(pgo_null_byte_SUITE).
+-module(dream_pgo_null_byte_SUITE).
 
 -compile(export_all).
 
@@ -14,11 +14,11 @@ all() -> [password, password_binary, user, database, parameter_name,
           linked_caller_survives, valid_configuration_starts].
 
 init_per_suite(Config) ->
-    application:ensure_all_started(pgo),
+    application:ensure_all_started(dream_pgo),
     Config.
 
 end_per_suite(_Config) ->
-    application:stop(pgo),
+    application:stop(dream_pgo),
     ok.
 
 password(_Config) ->
@@ -48,19 +48,19 @@ application_name(_Config) ->
             {null_byte, {parameter, <<"application_name">>}}).
 
 startup_parameters_check(_Config) ->
-    ?assertEqual(ok, pgo_handler:check_startup_options(
+    ?assertEqual(ok, dream_pgo_handler:check_startup_options(
                        #{user => "test", password => "password",
                          connection_parameters => [{<<"timezone">>, <<"UTC">>}]})),
     ?assertEqual({error, {null_byte, password}},
-                 pgo_handler:check_startup_options(#{password => [<<"a">>, [0]]})).
+                 dream_pgo_handler:check_startup_options(#{password => [<<"a">>, [0]]})).
 
-%% pgo_pool:start_link/2 links the pool to the caller. A refused
+%% dream_pgo_pool:start_link/2 links the pool to the caller. A refused
 %% configuration gives the caller an error, not an exit signal.
 linked_caller_survives(_Config) ->
     Self = self(),
     {Pid, MonRef} =
         spawn_monitor(fun() ->
-                              Result = pgo_pool:start_link(null_byte_linked,
+                              Result = dream_pgo_pool:start_link(null_byte_linked,
                                                                  pool_config(#{password => "a\0b"})),
                               Self ! {self(), Result},
                               timer:sleep(100)
@@ -79,15 +79,15 @@ linked_caller_survives(_Config) ->
     end.
 
 valid_configuration_starts(_Config) ->
-    {ok, _} = pgo_sup:start_child(valid_configuration_starts, pool_config(#{})),
+    {ok, _} = dream_pgo_sup:start_child(valid_configuration_starts, pool_config(#{})),
     ?assertMatch(#{rows := [{1}]},
-                 pgo:query(<<"select 1">>, [], #{pool => valid_configuration_starts})).
+                 dream_pgo:query(<<"select 1">>, [], #{pool => valid_configuration_starts})).
 
 %% The pool name gets a prefix: a name such as `user` is already taken
 %% by a process of the VM.
 refused(Case, PoolConfig, Reason) ->
     Pool = list_to_atom("null_byte_" ++ atom_to_list(Case)),
-    ?assertEqual({error, Reason}, pgo_sup:start_child(Pool, pool_config(PoolConfig))),
+    ?assertEqual({error, Reason}, dream_pgo_sup:start_child(Pool, pool_config(PoolConfig))),
     ?assertEqual(undefined, whereis(Pool)).
 
 pool_config(PoolConfig) ->

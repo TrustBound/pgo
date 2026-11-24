@@ -1,4 +1,4 @@
--module(pgo_test).
+-module(dream_pgo_test).
 
 -include_lib("eunit/include/eunit.hrl").
 
@@ -17,12 +17,12 @@
 %% array_types_test_() ->
 %%     {setup,
 %%      fun() ->
-%%              {ok, SupPid} = pgo_sup:start_link(),
+%%              {ok, SupPid} = dream_pgo_sup:start_link(),
 %%              {ok, PoolPid} = start_pool(),
 %%              PoolPid
 %%      end,
 %%      fun(PoolPid) ->
-%%              supervisor:terminate_child(pgo_sup, PoolPid),
+%%              supervisor:terminate_child(dream_pgo_sup, PoolPid),
 %%              kill_sup(PoolPid)
 %%      end,
 %%      fun(_) ->
@@ -139,7 +139,7 @@
 
 %%                {setup,
 %%                 fun() ->
-%%                         {updated, 1} = pgo:query(default, "create table tmp (id integer primary key, mypoint point, mylseg lseg, mybox box, mypath path, mypolygon polygon)", Conn),
+%%                         {updated, 1} = dream_pgo:query(default, "create table tmp (id integer primary key, mypoint point, mylseg lseg, mybox box, mypath path, mypolygon polygon)", Conn),
 %%                         ok
 %%                 end,
 %%                 fun(_) ->
@@ -222,7 +222,7 @@
 %%       fun() ->
 %%               {ok, SupPid} = saap_sup:start_link(),
 %%               Conn = pgsql_connection:open("test", "test"),
-%%               {updated, 1} = pgo:query(pool_1, "create table tmp (id integer primary key, mypath path)", Conn),
+%%               {updated, 1} = dream_pgo:query(pool_1, "create table tmp (id integer primary key, mypath path)", Conn),
 %%               {SupPid, Conn}
 %%       end,
 %%       fun({SupPid, Conn}) ->
@@ -239,7 +239,7 @@
 %%       fun() ->
 %%               {ok, SupPid} = saap_sup:start_link(),
 %%               Conn = pgsql_connection:open("test", "test"),
-%%               {updated, 1} = pgo:query(pool_1, "create table tmp (id integer primary key, mypath path)", Conn),
+%%               {updated, 1} = dream_pgo:query(pool_1, "create table tmp (id integer primary key, mypath path)", Conn),
 %%               {SupPid, Conn}
 %%       end,
 %%       fun({SupPid, Conn}) ->
@@ -256,7 +256,7 @@
 %%       fun() ->
 %%               {ok, SupPid} = saap_sup:start_link(),
 %%               Conn = pgsql_connection:open("test", "test"),
-%%               {updated, 1} = pgo:query(pool_1, "create table tmp (id integer primary key, mypolygon polygon)", Conn),
+%%               {updated, 1} = dream_pgo:query(pool_1, "create table tmp (id integer primary key, mypolygon polygon)", Conn),
 %%               {SupPid, Conn}
 %%       end,
 %%       fun({SupPid, Conn}) ->
@@ -284,7 +284,7 @@
 %%     end,
 %%     fun({_SupPid, Conn}) ->
 %%     [
-%%         ?_assertEqual({selected, [{1.0}]}, pgo:query(pool_1, "select 1.0::float4", Conn)),
+%%         ?_assertEqual({selected, [{1.0}]}, dream_pgo:query(pool_1, "select 1.0::float4", Conn)),
 %%         ?_assertEqual({selected, [{1.0}]}, pgsql_connection:sql_query("select 1.0::float8", Conn)),
 %%         ?_assertEqual({selected, [{1.0}]}, pgsql_connection:param_query("select 1.0::float4", [], Conn)),
 %%         ?_assertEqual({selected, [{1.0}]}, pgsql_connection:param_query("select 1.0::float8", [], Conn)),

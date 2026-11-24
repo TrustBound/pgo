@@ -1,7 +1,7 @@
 %% Mostly from the pgsql_protocol module in https://github.com/semiocast/pgsql
--module(pgo_protocol).
+-module(dream_pgo_protocol).
 
--include("pgo_internal.hrl").
+-include("dream_pgo_internal.hrl").
 
 -export([encode_startup_message/1,
          encode_ssl_request_message/0,
@@ -116,7 +116,7 @@ encode_bind_message(Conn=#conn{pool=Pool}, PortalName, StatementName, Parameters
                                   TypeInfo =
                                       case pg_types:lookup_type_info(Pool, Oid) of
                                           unknown_oid ->
-                                              pgo_connection:reload_types(Conn),
+                                              dream_pgo_connection:reload_types(Conn),
                                               pg_types:lookup_type_info(Pool, Oid);
                                           T ->
                                               T
@@ -221,7 +221,7 @@ encode_string_message(Identifier, String) ->
 %%--------------------------------------------------------------------
 %% @doc Decode a message.
 %%
--spec decode_message(byte(), binary(), pgo_pool:conn(), [pgo:decode_option()])
+-spec decode_message(byte(), binary(), dream_pgo_pool:conn(), [dream_pgo:decode_option()])
                     -> {ok, pgsql_backend_message()} | {error, any()}.
 decode_message($R, Payload, _,  _DecodeOpts) -> decode_authentication_message(Payload);
 decode_message($K, Payload, _,  _DecodeOpts) -> decode_backend_key_data_message(Payload);
@@ -453,7 +453,7 @@ decode_row_description_message0(Count, Binary, Conn=#conn{pool=Pool}, DecodeOpts
                 {ok, Format} ->
                     TypeInfo = case pg_types:lookup_type_info(Pool, DataTypeOid) of
                                    unknown_oid ->
-                                       pgo_connection:reload_types(Conn),
+                                       dream_pgo_connection:reload_types(Conn),
                                        pg_types:lookup_type_info(Pool, DataTypeOid);
                                    T ->
                                        T

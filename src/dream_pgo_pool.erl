@@ -1,6 +1,6 @@
 %% shamelessly stolen from James Fish's pool found in
 %% db_connectin https://github.com/elixir-ecto/db_connection/pull/108
--module(pgo_pool).
+-module(dream_pgo_pool).
 
 -export([start_link/2,
          checkout/2,
@@ -14,7 +14,7 @@
          handle_call/3,
          handle_info/2]).
 
--include("pgo_internal.hrl").
+-include("dream_pgo_internal.hrl").
 
 -define(TIMEOUT, 5000).
 -define(QUEUE, true).
@@ -85,7 +85,7 @@ format_error(client_timeout) ->
     "client timed out".
 
 init({Pool, PoolConfig}) ->
-    case pgo_handler:check_startup_options(PoolConfig) of
+    case dream_pgo_handler:check_startup_options(PoolConfig) of
         ok ->
             init_pool(Pool, PoolConfig);
         {error, Reason} ->
@@ -97,7 +97,7 @@ init({Pool, PoolConfig}) ->
 init_pool(Pool, PoolConfig) ->
     process_flag(trap_exit, true),
     QueueTid = ets:new(?MODULE, [protected, ordered_set]),
-    {ok, _} = pgo_pool_sup:start_link(QueueTid, Pool, PoolConfig),
+    {ok, _} = dream_pgo_pool_sup:start_link(QueueTid, Pool, PoolConfig),
 
     Target = maps:get(queue_target, PoolConfig, ?QUEUE_TARGET),
     Interval = maps:get(queue_interval, PoolConfig, ?QUEUE_INTERVAL),
@@ -217,7 +217,7 @@ drop_slow(Time, Timeout, Queue) ->
 
 ping(Holder, Queue, Codel) ->
     [{_, Conn, _, _, State}] = ets:lookup(Holder, ?HOLDER_KEY),
-    pgo_connection:ping(Conn, Holder, State),
+    dream_pgo_connection:ping(Conn, Holder, State),
     %% ping will create a new holder, so delete the old here
     ets:delete(Holder),
     {noreply, {ready, Queue, Codel}}.
@@ -395,4 +395,4 @@ delete_holder(Holder, Err) ->
     [{_, Conn, Deadline, _, State}] = ets:lookup(Holder, ?HOLDER_KEY),
     ets:delete(Holder),
     cancel_deadline(Deadline),
-    pgo_connection:disconnect(Conn, Holder, Err, State).
+    dream_pgo_connection:disconnect(Conn, Holder, Err, State).

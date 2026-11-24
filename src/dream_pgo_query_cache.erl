@@ -1,4 +1,4 @@
--module(pgo_query_cache).
+-module(dream_pgo_query_cache).
 
 -export([start_link/0,
          lookup/2,

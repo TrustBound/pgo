@@ -1,5 +1,5 @@
 %% Mostly from the pgsql_connection module in https://github.com/semiocast/pgsql
--module(pgo_handler).
+-module(dream_pgo_handler).
 
 -export([open/2,
          extended_query/3,
@@ -16,7 +16,7 @@
 -export([startup_parameters/1]).
 -endif.
 
--include("pgo_internal.hrl").
+-include("dream_pgo_internal.hrl").
 
 -define(DEFAULT_HOST, "127.0.0.1").
 -define(DEFAULT_PORT, 5432).
@@ -64,15 +64,15 @@
         % expect ready_for_query
     |   {result, any()}.
 
--spec extended_query(#conn{}, iodata(), list()) -> pgo:result().
+-spec extended_query(#conn{}, iodata(), list()) -> dream_pgo:result().
 extended_query(Socket, Query, Parameters) ->
     extended_query(Socket, Query, Parameters, [], #{queue_time => undefined}).
 
--spec extended_query(#conn{}, iodata(), list(), map()) -> pgo:result().
+-spec extended_query(#conn{}, iodata(), list(), map()) -> dream_pgo:result().
 extended_query(Socket, Query, Parameters, Timings) when is_map(Timings) ->
     extended_query(Socket, Query, Parameters, [], Timings).
 
--spec extended_query(#conn{}, iodata(), list(), pgo:decode_opts(), map()) -> pgo:result().
+-spec extended_query(#conn{}, iodata(), list(), dream_pgo:decode_opts(), map()) -> dream_pgo:result().
 extended_query(Socket, Query, Parameters, DecodeOptions, _Timings) ->
     DecodeFun = proplists:get_value(decode_fun, DecodeOptions, undefined),
     extended_query(Socket, Query, Parameters, DecodeOptions, DecodeFun, []).
@@ -81,7 +81,7 @@ extended_query(Socket, Query, Parameters, DecodeOptions, _Timings) ->
 ping(Conn=#conn{socket=Socket,
                 socket_module=SocketModule}) ->
     _ = setopts(SocketModule, Socket, [{active, false}]),
-    SocketModule:send(Socket, pgo_protocol:encode_sync_message()),
+    SocketModule:send(Socket, dream_pgo_protocol:encode_sync_message()),
     flush_until_ready_for_query(ok, Conn).
 
 close(undefined) ->
@@ -96,7 +96,7 @@ close(#conn{socket=Socket}) ->
 %%--------------------------------------------------------------------
 %% @doc Actually open (or re-open) the connection.
 %%
--spec open(atom(), pgo:pool_config()) -> {ok, pgo_pool:conn()} | {error, any()}.
+-spec open(atom(), dream_pgo:pool_config()) -> {ok, dream_pgo_pool:conn()} | {error, any()}.
 open(Pool, PoolConfig) ->
     Host = maps:get(host, PoolConfig, ?DEFAULT_HOST),
     Port = maps:get(port, PoolConfig, ?DEFAULT_PORT),
@@ -150,7 +150,7 @@ setup(Conn, Options) ->
     end.
 
 setup_ssl(Conn=#conn{socket=Socket}, Options) ->
-    SSLRequestMessage = pgo_protocol:encode_ssl_request_message(),
+    SSLRequestMessage = dream_pgo_protocol:encode_ssl_request_message(),
     case gen_tcp:send(Socket, SSLRequestMessage) of
         ok ->
             case gen_tcp:recv(Socket, 1) of
@@ -269,12 +269,12 @@ send_startup(Conn=#conn{socket_module=SocketModule,
                         pool=Pool}, Options) ->
     %% Send startup packet connection packet.
     StartupMessage =
-        pgo_protocol:encode_startup_message(startup_parameters(Options)),
+        dream_pgo_protocol:encode_startup_message(startup_parameters(Options)),
     case SocketModule:send(Socket, StartupMessage) of
         ok ->
             case receive_message(SocketModule, Socket, Pool, [no_reload_types]) of
                 {ok, #error_response{fields = Fields}} ->
-                    {error, {pgo_error, Fields}};
+                    {error, {dream_pgo_error, Fields}};
                 {ok, #authentication_ok{}} ->
                     setup_finish(Conn);
                 {ok, #authentication_kerberos_v5{}} ->
@@ -305,7 +305,7 @@ setup_authenticate_cleartext_password(Conn, Options) ->
     setup_authenticate_password(Conn, Password).
 
 setup_authenticate_sasl_password(Conn, MethodsBinary, Options) ->
-    Methods = pgo_protocol:decode_strings(MethodsBinary),
+    Methods = dream_pgo_protocol:decode_strings(MethodsBinary),
     case lists:member(<<"SCRAM-SHA-256">>, Methods) of
         true ->
             auth_scram(Conn, Options);
@@ -314,19 +314,19 @@ setup_authenticate_sasl_password(Conn, MethodsBinary, Options) ->
     end.
 
 auth_scram(Conn, Options) ->
-    Nonce = pgo_scram:get_nonce(16),
+    Nonce = dream_pgo_scram:get_nonce(16),
     case scram_client_first(Nonce, Conn, Options) of
         {ok, #authentication_server_first_message{first_msg=ServerFirst}} ->
             case scram_client_final(Nonce, ServerFirst, Conn, Options) of
                 {{ok, #authentication_server_final_message{final_msg=ServerFinal}}, ServerProof} ->
-                    case pgo_scram:parse_server_final(ServerFinal) of
+                    case dream_pgo_scram:parse_server_final(ServerFinal) of
                         {ok, ServerProof} ->
                             setup_finish(Conn);
                         Other ->
                             {error, {sasl_server_final, Other}}
                     end;
                 {{ok, #error_response{fields = Fields}}, _} ->
-                    {error, {pgo_error, Fields}};
+                    {error, {dream_pgo_error, Fields}};
                 {{ok, UnexpectedMessage}, _} ->
                     {error, {unexpected_message, UnexpectedMessage}};
                 {{error, _} = Error, _} ->
@@ -335,37 +335,37 @@ auth_scram(Conn, Options) ->
                     Error
             end;
         {ok, #error_response{fields = Fields}} ->
-            {error, {pgo_error, Fields}};
+            {error, {dream_pgo_error, Fields}};
         {ok, UnexpectedMessage} ->
             {error, {unexpected_message, UnexpectedMessage}};
         {error, _} = Error ->
             Error
     end.
 
--spec scram_client_first(pgo_scram:nonce(), #conn{}, maps:map()) -> {ok, term()} | {error, #error_response{}} | {error, term()}.
+-spec scram_client_first(dream_pgo_scram:nonce(), #conn{}, maps:map()) -> {ok, term()} | {error, #error_response{}} | {error, term()}.
 scram_client_first(Nonce, #conn{socket_module=SocketModule,
                                 socket=Socket,
                                 pool=Pool}, Options) ->
     User = maps:get(user, Options, ?DEFAULT_USER),
-    ClientFirst = pgo_scram:get_client_first(User, Nonce),
+    ClientFirst = dream_pgo_scram:get_client_first(User, Nonce),
     ClientFirstSize = iolist_size(ClientFirst),
     SaslInitialResponse = [<<"SCRAM-SHA-256">>, 0, <<ClientFirstSize:32/integer>>, ClientFirst],
-    case SocketModule:send(Socket, pgo_protocol:encode_scram_response_message(SaslInitialResponse)) of
+    case SocketModule:send(Socket, dream_pgo_protocol:encode_scram_response_message(SaslInitialResponse)) of
         ok ->
             receive_message(SocketModule, Socket, Pool, []);
         {error, _} = SendError ->
             SendError
     end.
 
--spec scram_client_final(pgo_scram:nonce(), binary(), #conn{}, maps:map()) -> {{ok, term()}, binary()} | {{error, term()}, binary()} | {error, term()}.
+-spec scram_client_final(dream_pgo_scram:nonce(), binary(), #conn{}, maps:map()) -> {{ok, term()}, binary()} | {{error, term()}, binary()} | {error, term()}.
 scram_client_final(Nonce, ServerFirst, #conn{socket_module=SocketModule,
                                              socket=Socket,
                                              pool=Pool}, Options) ->
     User = maps:get(user, Options, ?DEFAULT_USER),
-    ServerFirstParts = pgo_scram:parse_server_first(ServerFirst, Nonce),
+    ServerFirstParts = dream_pgo_scram:parse_server_first(ServerFirst, Nonce),
     Password = maps:get(password, Options, ?DEFAULT_PASSWORD),
-    {ClientFinalMessage, ServerProof} = pgo_scram:get_client_final(ServerFirstParts, Nonce, User, Password),
-    case SocketModule:send(Socket, pgo_protocol:encode_scram_response_message(ClientFinalMessage)) of
+    {ClientFinalMessage, ServerProof} = dream_pgo_scram:get_client_final(ServerFirstParts, Nonce, User, Password),
+    case SocketModule:send(Socket, dream_pgo_protocol:encode_scram_response_message(ClientFinalMessage)) of
         ok ->
             {receive_message(SocketModule, Socket, Pool, []), ServerProof};
         {error, _} = SendError ->
@@ -386,12 +386,12 @@ setup_authenticate_md5_password(Conn, Salt, Options) ->
 setup_authenticate_password(Conn=#conn{socket_module=SocketModule,
                                        socket=Socket,
                                        pool=Pool}, Password) ->
-    Message = pgo_protocol:encode_password_message(Password),
+    Message = dream_pgo_protocol:encode_password_message(Password),
     case SocketModule:send(Socket, Message) of
         ok ->
             case receive_message(SocketModule, Socket, Pool, []) of
                 {ok, #error_response{fields = Fields}} ->
-                    {error, {pgo_error, Fields}};
+                    {error, {dream_pgo_error, Fields}};
                 {ok, #authentication_ok{}} ->
                     setup_finish(Conn);
                 {ok, UnexpectedMessage} ->
@@ -417,7 +417,7 @@ setup_finish(Conn=#conn{owner=Pid,
         {ok, #authentication_ok{}} ->
             setup_finish(Conn);
         {ok, #error_response{fields = Fields}} ->
-            {error, {pgo_error, Fields}};
+            {error, {dream_pgo_error, Fields}};
         {ok, Message} ->
             {error, {unexpected_message, Message}};
         {error, _} = ReceiveError ->
@@ -433,14 +433,14 @@ process_active_data(<<Code:8/integer, Size:32/integer, Tail/binary>>, Conn=#conn
     Payload = Size - 4,
     DecodeT = case Payload of
                   0 ->
-                      {pgo_protocol:decode_message(Code, <<>>, Conn, []), Tail};
+                      {dream_pgo_protocol:decode_message(Code, <<>>, Conn, []), Tail};
                   _ when Payload =< TailSize ->
                       {PayloadBin, Rest0} = split_binary(Tail, Payload),
-                      {pgo_protocol:decode_message(Code, PayloadBin, Conn, []), Rest0};
+                      {dream_pgo_protocol:decode_message(Code, PayloadBin, Conn, []), Rest0};
                   _ when Payload > TailSize ->
                       case SocketModule:recv(Socket, Payload - TailSize) of
                           {ok, Missing} ->
-                              {pgo_protocol:decode_message(Code, list_to_binary([Tail, Missing]), Conn, []), <<>>};
+                              {dream_pgo_protocol:decode_message(Code, list_to_binary([Tail, Missing]), Conn, []), <<>>};
                           {error, _} = ErrorRecvPacket ->
                               {ErrorRecvPacket, <<>>}
                       end
@@ -478,20 +478,20 @@ process_active_data(PartialHeader, Conn=#conn{socket=Socket,
 % (unless it is a rollback).
 % If set succeeded within a transaction, but the query failed, the reset may
 % fail but set only applies to the transaction anyway.
-%% -spec set_succeeded_or_within_failed_transaction({set, []} | {error, pgo_error:pgo_error()}) -> boolean().
+%% -spec set_succeeded_or_within_failed_transaction({set, []} | {error, dream_pgo_error:dream_pgo_error()}) -> boolean().
 %% set_succeeded_or_within_failed_transaction({set, []}) -> true;
 %% set_succeeded_or_within_failed_transaction({error, {error, _} = Error}) ->
 %%     error:is_in_failed_sql_transaction(Error).
 
--spec extended_query(#conn{}, iodata(), list(), pgo:decode_opts(), any(), list()) -> pgo:result().
+-spec extended_query(#conn{}, iodata(), list(), dream_pgo:decode_opts(), any(), list()) -> dream_pgo:result().
 extended_query(Conn=#conn{socket=Socket,
                           socket_module=SocketModule,
                           pool=Pool}, Query, Parameters, DecodeOptions, PerRowFun, Acc0) ->
     _ = setopts(SocketModule, Socket, [{active, false}]),
     put(query, Query),
-    ParseMessage = pgo_protocol:encode_parse_message("", Query, []),
+    ParseMessage = dream_pgo_protocol:encode_parse_message("", Query, []),
     %% We ask for a description of parameters only if required.
-    PacketT = case pgo_query_cache:lookup(Pool, Query) of
+    PacketT = case dream_pgo_query_cache:lookup(Pool, Query) of
                   DataTypes when is_list(DataTypes) ->
                       case encode_bind_describe_execute(Conn, Parameters, DataTypes) of
                           {ok, BindExecute} ->
@@ -500,8 +500,8 @@ extended_query(Conn=#conn{socket=Socket,
                               Error
                       end;
                   not_found ->
-                      DescribeStatementMessage = pgo_protocol:encode_describe_message(statement, ""),
-                      FlushMessage = pgo_protocol:encode_flush_message(),
+                      DescribeStatementMessage = dream_pgo_protocol:encode_describe_message(statement, ""),
+                      FlushMessage = dream_pgo_protocol:encode_flush_message(),
                       LoopState0 = {parse_complete_with_params, Parameters},
                       {ok, [ParseMessage, DescribeStatementMessage, FlushMessage], LoopState0}
 
@@ -540,13 +540,13 @@ setopts(gen_tcp, Socket, Options) ->
 setopts(ssl, Socket, Options) ->
     _ = ssl:setopts(Socket, Options).
 
--spec encode_bind_describe_execute(pgo_pool:conn(), [any()], [oid()]) -> {ok, iodata()} | {term(), any()}.
+-spec encode_bind_describe_execute(dream_pgo_pool:conn(), [any()], [oid()]) -> {ok, iodata()} | {term(), any()}.
 encode_bind_describe_execute(Conn, Parameters, ParameterDataTypes) ->
-    DescribeMessage = pgo_protocol:encode_describe_message(portal, ""),
-    ExecuteMessage = pgo_protocol:encode_execute_message("", 0),
-    SyncOrFlushMessage = pgo_protocol:encode_sync_message(),
+    DescribeMessage = dream_pgo_protocol:encode_describe_message(portal, ""),
+    ExecuteMessage = dream_pgo_protocol:encode_execute_message("", 0),
+    SyncOrFlushMessage = dream_pgo_protocol:encode_sync_message(),
     try
-        BindMessage = pgo_protocol:encode_bind_message(Conn, "", "", Parameters, ParameterDataTypes),
+        BindMessage = dream_pgo_protocol:encode_bind_message(Conn, "", "", Parameters, ParameterDataTypes),
         SinglePacket = [BindMessage, DescribeMessage, ExecuteMessage, SyncOrFlushMessage],
         {ok, SinglePacket}
     catch
@@ -555,10 +555,10 @@ encode_bind_describe_execute(Conn, Parameters, ParameterDataTypes) ->
     end.
 
 %% requires_statement_description(_Parameters) ->
-%%     true. %pgo_protocol:bind_requires_statement_description(Parameters).
+%%     true. %dream_pgo_protocol:bind_requires_statement_description(Parameters).
 
--spec receive_loop(extended_query_loop_state(), pgo:decode_fun(), list(), list(), pgo:conn())
-                  -> pgo:result().
+-spec receive_loop(extended_query_loop_state(), dream_pgo:decode_fun(), list(), list(), dream_pgo:conn())
+                  -> dream_pgo:result().
 receive_loop(LoopState, DecodeFun, Acc0, DecodeOptions, Conn=#conn{socket=Socket,
                                                                    socket_module=SocketModule}) ->
     case receive_message(SocketModule, Socket, Conn, DecodeOptions) of
@@ -586,7 +586,7 @@ receive_loop0(#parameter_description{data_types=ParameterDataTypes},
               Acc0, DecodeOptions, Conn=#conn{socket=Socket,
                                               socket_module=SocketModule,
                                               pool=Pool}) ->
-    pgo_query_cache:insert(Pool, get(query), ParameterDataTypes),
+    dream_pgo_query_cache:insert(Pool, get(query), ParameterDataTypes),
     %% oob_update_oid_map_if_required(Conn, ParameterDataTypes, DecodeOptions),
     PacketT = encode_bind_describe_execute(Conn, Parameters, ParameterDataTypes),
     case PacketT of
@@ -598,7 +598,7 @@ receive_loop0(#parameter_description{data_types=ParameterDataTypes},
                     SendError
             end;
         {_, _} = Error ->
-            case SocketModule:send(Socket, pgo_protocol:encode_sync_message()) of
+            case SocketModule:send(Socket, dream_pgo_protocol:encode_sync_message()) of
                 ok -> flush_until_ready_for_query(Error, Conn);
                 {error, _} = SendSyncPacketError -> SendSyncPacketError
             end
@@ -618,10 +618,10 @@ receive_loop0(#row_description{fields = Fields}, row_description, DecodeFun, Acc
     receive_loop({rows, Fields}, DecodeFun, Acc0, DecodeOptions, Conn);
 receive_loop0(#data_row{values = Values}, {rows, Fields} = LoopState, undefined=DecodeFun,
               Acc0, DecodeOptions, Conn=#conn{pool=Pool}) ->
-    DecodedRow = pgo_protocol:decode_row(Fields, Values, Pool, DecodeOptions),
+    DecodedRow = dream_pgo_protocol:decode_row(Fields, Values, Pool, DecodeOptions),
     receive_loop(LoopState, DecodeFun, [DecodedRow | Acc0], DecodeOptions, Conn);
 receive_loop0(#data_row{values = Values}, {rows, Fields} = LoopState, DecodeFun, Acc0, DecodeOptions, Conn=#conn{pool=Pool}) ->
-    DecodedRow = pgo_protocol:decode_row(Fields, Values, Pool, DecodeOptions),
+    DecodedRow = dream_pgo_protocol:decode_row(Fields, Values, Pool, DecodeOptions),
     receive_loop(LoopState, DecodeFun, [DecodeFun(DecodedRow, Fields) | Acc0], DecodeOptions, Conn);
 receive_loop0(#command_complete{command_tag = Tag}, _LoopState, DecodeFun, Acc0, DecodeOptions, Conn) ->
     {Command, NumRows} = decode_tag(Tag),
@@ -629,8 +629,8 @@ receive_loop0(#command_complete{command_tag = Tag}, _LoopState, DecodeFun, Acc0,
                             num_rows => NumRows,
                             rows => lists:reverse(Acc0)}}, DecodeFun, Acc0, DecodeOptions, Conn);
 %% receive_loop0(#portal_suspended{}, LoopState, DecodeFun, Acc0, DecodeOptions, Conn={_,S}) ->
-%%     ExecuteMessage = pgo_protocol:encode_execute_message("", 0),
-%%     FlushMessage = pgo_protocol:encode_flush_message(),
+%%     ExecuteMessage = dream_pgo_protocol:encode_execute_message("", 0),
+%%     FlushMessage = dream_pgo_protocol:encode_flush_message(),
 %%     SinglePacket = [ExecuteMessage, FlushMessage],
 %%     case gen_tcp:send(S, SinglePacket) of
 %%         ok -> receive_loop(LoopState, DecodeFun, Acc0, DecodeOptions, Conn);
@@ -653,7 +653,7 @@ receive_loop0(#error_response{fields = Fields}, LoopState, _Fun, _Acc0, _DecodeO
                end,
     case NeedSync of
         true ->
-            case SocketModule:send(Socket, pgo_protocol:encode_sync_message()) of
+            case SocketModule:send(Socket, dream_pgo_protocol:encode_sync_message()) of
                 ok -> flush_until_ready_for_query(Error, Conn);
                 {error, _} = SendSyncPacketError -> SendSyncPacketError
             end;
@@ -664,7 +664,7 @@ receive_loop0(#ready_for_query{} = Message, _LoopState, _Fun, _Acc0, _DecodeOpti
     {error, {unexpected_message, Message}};
 receive_loop0(Message, _LoopState, _Fun, _Acc0, _DecodeOptions, Conn=#conn{socket=Socket,
                                                                            socket_module=SocketModule}) ->
-    SocketModule:send(Socket, pgo_protocol:encode_sync_message()),
+    SocketModule:send(Socket, dream_pgo_protocol:encode_sync_message()),
     Error = {error, {unexpected_message, Message}},
     flush_until_ready_for_query(Error, Conn).
 
@@ -695,11 +695,11 @@ receive_message(SocketModule, Socket, Pool, DecodeOpts) ->
                       Payload = Size - 4,
                       case Payload of
                           0 ->
-                              pgo_protocol:decode_message(Code, <<>>, Pool, DecodeOpts);
+                              dream_pgo_protocol:decode_message(Code, <<>>, Pool, DecodeOpts);
                           _ ->
                               case SocketModule:recv(Socket, Payload) of
                                   {ok, Rest} ->
-                                      pgo_protocol:decode_message(Code, Rest, Pool, DecodeOpts);
+                                      dream_pgo_protocol:decode_message(Code, Rest, Pool, DecodeOpts);
                                   {error, _} = ErrorRecvPacket ->
                                       ErrorRecvPacket
                               end
@@ -768,7 +768,7 @@ decode_object(Object) ->
 
 simple_query(Conn=#conn{socket_module=SocketModule,
                         socket=Socket}, Query) ->
-    case SocketModule:send(Socket, pgo_protocol:encode_query_message(Query)) of
+    case SocketModule:send(Socket, dream_pgo_protocol:encode_query_message(Query)) of
         ok ->
             simple_query_loop(Conn, []);
         {error, _}=Error ->
@@ -798,7 +798,7 @@ simple_query_loop(#conn{socket=Socket}=Conn, Acc) ->
         {ok, #ready_for_query{}} ->
             {ok, Acc};
         {ok, #error_response{fields=Fields}} ->
-            {error, {pgo_error, Fields}};
+            {error, {dream_pgo_error, Fields}};
         {error, _} = ReceiveError ->
             ReceiveError
     end.
@@ -818,7 +818,7 @@ simple_receive_message(Socket, _Conn=#conn{socket_module=SocketModule}, _DecodeO
                         $Z ->
                             decode_ready_for_query_message(Rest);
                         $E ->
-                            pgo_protocol:decode_error_response_message(Rest)
+                            dream_pgo_protocol:decode_error_response_message(Rest)
                     end;
                 {error, _} = ErrorRecvPacket ->
                     ErrorRecvPacket

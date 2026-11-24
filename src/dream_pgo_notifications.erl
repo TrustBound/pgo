@@ -1,4 +1,4 @@
--module(pgo_notifications).
+-module(dream_pgo_notifications).
 
 -behaviour(gen_statem).
 
@@ -14,23 +14,23 @@
          disconnected/3,
          terminate/3]).
 
--include("pgo_internal.hrl").
+-include("dream_pgo_internal.hrl").
 -include_lib("kernel/include/logger.hrl").
 
 -type channel() :: unicode:unicode_binary().
 
 -record(data, {conn :: #conn{} | undefined,
-               config :: pgo:pool_config(),
+               config :: dream_pgo:pool_config(),
                backoff :: backoff:backoff(),
 
                listeners :: #{reference() => {channel(), pid()}},
                listener_channels :: #{channel() => #{reference() => pid()}}}).
 
--spec start_link(pgo:pool_config()) -> gen_statem:start_ret().
+-spec start_link(dream_pgo:pool_config()) -> gen_statem:start_ret().
 start_link(Config) ->
     gen_statem:start_link(?MODULE, [Config], []).
 
--spec start_link(gen_statem:server_name(), pgo:pool_config()) -> gen_statem:start_ret().
+-spec start_link(gen_statem:server_name(), dream_pgo:pool_config()) -> gen_statem:start_ret().
 start_link(ServerName, Config) ->
     gen_statem:start_link(ServerName, ?MODULE, [Config], []).
 
@@ -61,7 +61,7 @@ disconnected(EventType, _, Data=#data{backoff=B,
                                       config=Config}) when EventType =:= internal
                                                            ; EventType =:= timeout
                                                            ; EventType =:= state_timeout ->
-    try pgo_handler:open(undefined, Config) of
+    try dream_pgo_handler:open(undefined, Config) of
         {ok, Conn} ->
             {_, B1} = backoff:succeed(B),
             {next_state, connected, Data#data{conn=Conn,
@@ -103,7 +103,7 @@ connected(enter, _, #data{conn=Conn,
             Channels = maps:keys(ListenerChannels),
             ListenStatements = [["LISTEN ", Channel, "; "] || Channel <- Channels],
             Query = ["DO $$BEGIN ", ListenStatements, " END$$"],
-            #{command := do} = pgo_handler:extended_query(Conn, Query, []),
+            #{command := do} = dream_pgo_handler:extended_query(Conn, Query, []),
             keep_state_and_data;
         false ->
             keep_state_and_data
@@ -119,7 +119,7 @@ connected({call, {Pid, _}=From}, {listen, Channel}, Data=#data{conn=Conn,
     case erlang:map_size(maps:get(Channel, ListenerChannels1)) of
         1 ->
             %% first time listening on this channel
-            case pgo_handler:extended_query(Conn, ["LISTEN ", Channel], []) of
+            case dream_pgo_handler:extended_query(Conn, ["LISTEN ", Channel], []) of
                 #{command := listen} ->
                     {keep_state, Data#data{listeners=Listeners1,
                                            listener_channels=ListenerChannels1}, [{reply, From, {ok, Ref}}]};
@@ -149,7 +149,7 @@ handle_event(info, {'DOWN', Ref, process, _, _}, Data=#data{conn=Conn,
                            listener_channels=ListenerChannels1}};
 handle_event(info, {Tag, Socket, Binary}, Data=#data{conn=Conn=#conn{socket=Socket},
                                                      listener_channels=ListenerChannels}) when Tag =:= tcp orelse Tag =:= ssl ->
-    Conn = pgo_handler:process_active_data(Binary, Conn, fun(Notification) ->
+    Conn = dream_pgo_handler:process_active_data(Binary, Conn, fun(Notification) ->
                                                                  notify(ListenerChannels, Notification)
                                                          end),
     _ = inet:setopts(Socket, [{active, once}]),
@@ -174,18 +174,18 @@ handle_event(_, _, _) ->
 terminate(_Reason, _, #data{conn=undefined}) ->
     ok;
 terminate(_Reason, _, #data{conn=Conn}) ->
-    pgo_handler:close(Conn),
+    dream_pgo_handler:close(Conn),
     ok.
 
 %%
 
 close_and_reopen(Data=#data{conn=Conn}) ->
-    pgo_handler:close(Conn),
+    dream_pgo_handler:close(Conn),
     {next_state, disconnected, Data#data{conn=undefined},
      [{next_event, internal, connect}]}.
 
 report_cb(#{at := connecting,
-            reason := {pgo_error, #{message := Message}}}) ->
+            reason := {dream_pgo_error, #{message := Message}}}) ->
     {"error connecting to database: ~s", [Message]};
 report_cb(#{at := connecting,
             reason := Reason}) ->
@@ -201,7 +201,7 @@ unlisten(Ref, Listeners, ListenerChannels, Conn) ->
             case erlang:map_size(PerChannel) of
                 0 ->
                     ListenerChannels1 =maps:remove(Channel, ListenerChannels),
-                    #{command := unlisten} = pgo_handler:extended_query(Conn, ["UNLISTEN ", Channel], []),
+                    #{command := unlisten} = dream_pgo_handler:extended_query(Conn, ["UNLISTEN ", Channel], []),
                     {Listeners1, ListenerChannels1};
                 _ ->
                     {Listeners1, ListenerChannels#{Channel => PerChannel}}

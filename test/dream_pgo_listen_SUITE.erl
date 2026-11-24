@@ -1,4 +1,4 @@
--module(pgo_listen_SUITE).
+-module(dream_pgo_listen_SUITE).
 
 -compile(export_all).
 
@@ -8,9 +8,9 @@
 all() -> [listen_notify, named_listen_notify].
 
 init_per_suite(Config) ->
-    application:ensure_all_started(pgo),
+    application:ensure_all_started(dream_pgo),
 
-    {ok, _} = pgo_sup:start_child(default, #{pool_size => 1,
+    {ok, _} = dream_pgo_sup:start_child(default, #{pool_size => 1,
                                              port => 5432,
                                              database => "test",
                                              user => "test",
@@ -19,22 +19,22 @@ init_per_suite(Config) ->
     Config.
 
 end_per_suite(_Config) ->
-    application:stop(pgo),
+    application:stop(dream_pgo),
     ok.
 
 listen_notify(_Config) ->
 
-    {ok, Pid} = pgo_notifications:start_link(#{database => "test",
+    {ok, Pid} = dream_pgo_notifications:start_link(#{database => "test",
                                                user => "test",
                                                password => "password"}),
     Chan1 = <<"chan1">>,
     Chan2 = <<"chan2">>,
 
-    {_, Ref1} = pgo_notifications:listen(Pid, Chan1),
-    {_, Ref2} = pgo_notifications:listen(Pid, Chan1),
+    {_, Ref1} = dream_pgo_notifications:listen(Pid, Chan1),
+    {_, Ref2} = dream_pgo_notifications:listen(Pid, Chan1),
 
     ?assertMatch(#{command := notify},
-                 pgo:query("NOTIFY chan1, 'message 1'")),
+                 dream_pgo:query("NOTIFY chan1, 'message 1'")),
 
     receive
         {notification, Pid, Ref1, Chan1, Payload} ->
@@ -53,10 +53,10 @@ listen_notify(_Config) ->
     end,
 
     %% unlisten and check only Ref1 gets the notification
-    ok = pgo_notifications:unlisten(Pid, Ref2),
+    ok = dream_pgo_notifications:unlisten(Pid, Ref2),
 
     ?assertMatch(#{command := notify},
-                 pgo:query("NOTIFY chan1, 'message 2'")),
+                 dream_pgo:query("NOTIFY chan1, 'message 2'")),
 
     receive
         {notification, Pid, Ref1, Chan1, Payload2} ->
@@ -75,10 +75,10 @@ listen_notify(_Config) ->
             ok
     end,
 
-    {_, Ref3} = pgo_notifications:listen(Pid, Chan2),
+    {_, Ref3} = dream_pgo_notifications:listen(Pid, Chan2),
 
     ?assertMatch(#{command := notify},
-                 pgo:query("NOTIFY chan2, 'message 3'")),
+                 dream_pgo:query("NOTIFY chan2, 'message 3'")),
 
     receive
         {notification, Pid, Ref3, Chan2, Payload3} ->
@@ -88,12 +88,12 @@ listen_notify(_Config) ->
             ct:fail(timeout)
     end,
 
-    pgo_notifications:unlisten(Pid, Ref1),
-    pgo_notifications:unlisten(Pid, Ref2),
-    pgo_notifications:unlisten(Pid, Ref3),
+    dream_pgo_notifications:unlisten(Pid, Ref1),
+    dream_pgo_notifications:unlisten(Pid, Ref2),
+    dream_pgo_notifications:unlisten(Pid, Ref3),
 
     ?assertMatch(#{command := notify},
-                 pgo:query("NOTIFY chan1, 'Hello, listeners!'")),
+                 dream_pgo:query("NOTIFY chan1, 'Hello, listeners!'")),
 
     %% should not get a notification
     receive
@@ -106,16 +106,16 @@ listen_notify(_Config) ->
     ok.
 
 named_listen_notify(_Config) ->
-    {ok, Pid} = pgo_notifications:start_link({local, notification_db},
+    {ok, Pid} = dream_pgo_notifications:start_link({local, notification_db},
                                              #{database => "test",
                                                user => "test",
                                                password => "password"}),
     Chan1 = <<"chan1">>,
 
-    {_, Ref1} = pgo_notifications:listen(notification_db, Chan1),
+    {_, Ref1} = dream_pgo_notifications:listen(notification_db, Chan1),
 
     ?assertMatch(#{command := notify},
-                 pgo:query("NOTIFY chan1, 'message 1'")),
+                 dream_pgo:query("NOTIFY chan1, 'message 1'")),
 
     receive
         {notification, Pid, Ref1, Chan1, Payload} ->

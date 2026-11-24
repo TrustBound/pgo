@@ -1,4 +1,4 @@
--module(pgo_connection_starter).
+-module(dream_pgo_connection_starter).
 
 -export([start_link/2]).
 
@@ -21,9 +21,9 @@ callback_mode() ->
     state_functions.
 
 connect(internal, start_connections, #data{sup=Sup, size=Size}) ->
-    ConnSup = pgo_pool_sup:whereis_child(Sup, connection_sup),
-    [{ok, _} = pgo_connection_sup:start_child(ConnSup) || _ <- lists:seq(1, Size)],
+    ConnSup = dream_pgo_pool_sup:whereis_child(Sup, connection_sup),
+    [{ok, _} = dream_pgo_connection_sup:start_child(ConnSup) || _ <- lists:seq(1, Size)],
 
-    TypeServer = pgo_pool_sup:whereis_child(Sup, type_server),
-    pgo_type_server:reload(TypeServer),
+    TypeServer = dream_pgo_pool_sup:whereis_child(Sup, type_server),
+    dream_pgo_type_server:reload(TypeServer),
     keep_state_and_data.

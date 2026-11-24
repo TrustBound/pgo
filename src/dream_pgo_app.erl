@@ -1,8 +1,8 @@
 %%%-------------------------------------------------------------------
-%% @doc pgo application
+%% @doc dream_pgo application
 %% @end
 %%%-------------------------------------------------------------------
--module(pgo_app).
+-module(dream_pgo_app).
 
 -behaviour(application).
 
@@ -13,10 +13,10 @@
 %%====================================================================
 
 start(_StartType, _StartArgs) ->
-    pgo_query_cache:start_link(),
-    Pools = application:get_env(pgo, pools, []),
-    {ok, Pid} = pgo_sup:start_link(),
-    [{ok, _} = pgo_sup:start_child(Name, PoolConfig) || {Name, PoolConfig} <- Pools],
+    dream_pgo_query_cache:start_link(),
+    Pools = application:get_env(dream_pgo, pools, []),
+    {ok, Pid} = dream_pgo_sup:start_link(),
+    [{ok, _} = dream_pgo_sup:start_child(Name, PoolConfig) || {Name, PoolConfig} <- Pools],
     {ok, Pid}.
 
 %%--------------------------------------------------------------------

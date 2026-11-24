@@ -1,4 +1,16 @@
-# PGO
+# dream_pgo
+
+`dream_pgo` is a fork of [pgo](https://github.com/erleans/pgo), the PostgreSQL client by the pgo authors. It is published on Hex as `dream_pgo`. The fork starts from pgo v0.20.0.
+
+What is different from pgo:
+
+* Names. The OTP application, the Hex package and every module have the `dream_pgo` prefix (`pgo` is `dream_pgo`, `pgo_pool` is `dream_pgo_pool`, and so on). The application environment key, the error tag `dream_pgo_error`, the trace span names and the transaction key in the process dictionary also use the new prefix. Thus `dream_pgo` and `pgo` can load in the same VM.
+* The `application_name` fix. A caller's `application_name` in `connection_parameters` replaces the default. The driver sends the node name only when the caller gives no name. The startup packet never holds a parameter name two times, and the caller's order stays as it is. The pool option `application_name` (atom or iodata) also sets the name. An entry in `connection_parameters` takes precedence over the pool option.
+* The null byte check. PostgreSQL strings in the startup packet cannot hold a null byte. A pool whose password, user, database, application name or `connection_parameters` hold a null byte does not start: `dream_pgo:start_pool/2` returns `{error, {null_byte, password}}` or `{error, {null_byte, {parameter, Name}}}`. The error never holds the value.
+
+The rest of this README is the pgo README, with the module names changed.
+
+## pgo
 
 [![Tests](https://github.com/erleans/pgo/actions/workflows/ct.yml/badge.svg)](https://github.com/erleans/pgo/actions/workflows/ct.yml)
 [![codecov](https://codecov.io/gh/erleans/pgo/branch/main/graph/badge.svg)](https://codecov.io/gh/erleans/pgo)
@@ -20,43 +32,43 @@ Erlang/OTP 26 and above.
 
 ## Use
 
-Pools defined in the `pgo` application's environment will be started on boot. You can also add pools dynamically with `pgo:start_pool/3`.
+Pools defined in the `dream_pgo` application's environment will be started on boot. You can also add pools dynamically with `dream_pgo:start_pool/3`.
 
-To try `pgo` simply modify `config/example.config` by replacing the `host`, `database`, `user` and `password` values for the database you wish to connect to:
+To try `dream_pgo` simply modify `config/example.config` by replacing the `host`, `database`, `user` and `password` values for the database you wish to connect to:
 
 ```erlang
 [
-  {pgo, [{pools, [{default, #{pool_size => 10,
+  {dream_pgo, [{pools, [{default, #{pool_size => 10,
                               host => "127.0.0.1",
                               database => "test",
                               user => "test"}}]}]}
 ].
 ```
 
-`default` is the name of the pool, `size` is the number of connections to create for the pool. Or you can start the pool through `pgo:start_pool/2` which creates it as a child of `pgo`'s simple one for one:
+`default` is the name of the pool, `size` is the number of connections to create for the pool. Or you can start the pool through `dream_pgo:start_pool/2` which creates it as a child of `dream_pgo`'s simple one for one:
 
 ``` erlang
-> application:ensure_all_started(pgo).
-{ok,[backoff,opentelemetry_api,pg_types,pgo]}
-> pgo:start_pool(default, #{pool_size => 5, host => "127.0.0.1", database => "test", user => "test"}). 
+> application:ensure_all_started(dream_pgo).
+{ok,[backoff,opentelemetry_api,pg_types,dream_pgo]}
+> dream_pgo:start_pool(default, #{pool_size => 5, host => "127.0.0.1", database => "test", user => "test"}). 
 ```
 
 Or start a pool as a child of your application's supervisor:
 
 ``` erlang
-ChildSpec = #{id => pgo_pool,
-              start => {pgo_pool, start_link, [Name, PoolConfig]},
+ChildSpec = #{id => dream_pgo_pool,
+              start => {dream_pgo_pool, start_link, [Name, PoolConfig]},
               shutdown => 1000},
 ```
 
 Then start a shell with `rebar3 shell`, it will boot the applications which will start the pool automatically if it is configured through `sys.config`.
 
 ```erlang
-> pgo:query("select 1").
+> dream_pgo:query("select 1").
 #{command => select, num_rows => 1, rows => [{1}]}
-> pgo:transaction(fun() ->
->     pgo:query("INSERT INTO my_table(name) VALUES('Name 1')"),
->     pgo:query("INSERT INTO my_table(name) VALUES('Name 2')")
+> dream_pgo:transaction(fun() ->
+>     dream_pgo:query("INSERT INTO my_table(name) VALUES('Name 1')"),
+>     dream_pgo:query("INSERT INTO my_table(name) VALUES('Name 2')")
 > end).
 #{command => insert,num_rows => 1,rows => []}
 ```
@@ -87,7 +99,7 @@ Pool configuration includes the Postgres connection information, pool configurat
   decode_opts => [decode_option()]}
 ```
 
-The query time options can also be set through options passed to `pgo:query/3`:
+The query time options can also be set through options passed to `dream_pgo:query/3`:
 
 ``` erlang
 decode_fun() :: fun((row(), fields()) -> row()) | undefined.
@@ -109,7 +121,7 @@ decode_option() :: return_rows_as_maps | {return_rows_as_maps, boolean()} |
 * `column_name_as_atom` (default: `false`): If `true` converts each column name in the result to an atom.
 * `decode_fun` (default: `undefined`): Optional function for performing transformations on each row in a result. It must be a 2-arity function returning a list or map for the row and takes the row (as a list or map) and a list of `#row_description_field{}` records.
 * `queue` (default: `true`): Whether to wait for a connection from the pool if none are available.
-* `trace` (default: `false`): `pgo` is instrumented with [OpenTelemetry](https://opencensus.io/) and when this option is `true` a span will be created (if sampled).
+* `trace` (default: `false`): `dream_pgo` is instrumented with [OpenTelemetry](https://opencensus.io/) and when this option is `true` a span will be created (if sampled).
 
 ### Database Settings
 
@@ -138,7 +150,7 @@ decode_option() :: return_rows_as_maps | {return_rows_as_maps, boolean()} |
 [OpenTelemetry](https://opentelemetry.io/) spans can be enabled for queries and transactions by either setting the `trace` to `true` for the pool:
 
 ``` erlang
-> pgo:start_pool(default, #{host => "127.0.0.1", 
+> dream_pgo:start_pool(default, #{host => "127.0.0.1", 
                             database => "test", 
                             user => "test",
                             pool_size => 5,
@@ -148,25 +160,25 @@ decode_option() :: return_rows_as_maps | {return_rows_as_maps, boolean()} |
 Or by passing `#{trace => true}` in the options for a query or transaction:
 
 ```erlang
-> pgo:query("select 1", [], #{trace => true}).
+> dream_pgo:query("select 1", [], #{trace => true}).
 #{command => select, num_rows => 1, rows => [{1}]}
-> pgo:transaction(fun() ->
->     pgo:query("INSERT INTO my_table(name) VALUES('Name 1')"),
->     pgo:query("INSERT INTO my_table(name) VALUES('Name 2')")
+> dream_pgo:transaction(fun() ->
+>     dream_pgo:query("INSERT INTO my_table(name) VALUES('Name 1')"),
+>     dream_pgo:query("INSERT INTO my_table(name) VALUES('Name 2')")
 > end, #{trace => true}).
 #{command => insert,num_rows => 1,rows => []}
 ```
 
 Note that since this is optional the `opentelemetry` application is not included
-as a dependency of `pgo` -- only `opentelemetry_api` is included by default. So
+as a dependency of `dream_pgo` -- only `opentelemetry_api` is included by default. So
 it must be included as a `rebar3` dependency and runtime dependency (listed in
 your application's `.app.src` `applications` or the list of applications for
 `relx` to include in a release).
 
 ### Listen/Notify
 
-Use `pgo_notifications:start_link` to create a process holding a connection to
-the database that you can call `pgo_notifications:listen/2` with to listen on a
+Use `dream_pgo_notifications:start_link` to create a process holding a connection to
+the database that you can call `dream_pgo_notifications:listen/2` with to listen on a
 channel for notifications. Those notifications will arrive at the calling
 process in the form:
 
