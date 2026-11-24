@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A caller's `application_name` in `connection_parameters` replaces the default node name. Before, the driver sent both, and PostgreSQL used the last one.
 - The startup packet never holds a parameter name two times. The caller's `connection_parameters` need no sort order.
 - The documented pool option `application_name` now sets the application name.
+- A null byte in the password or in a startup parameter (user, database, `application_name`, any entry of `connection_parameters`) no longer goes to the server. Before, a null byte in the password crashed the pool, and a null byte in a parameter ended the string in the startup packet and could add a parameter. Now `pgo:start_pool/2` returns `{error, {null_byte, password}}` or `{error, {null_byte, {parameter, Name}}}` and starts no pool.
 - The names of settings in `connection_parameters` have no case, as in PostgreSQL. An `Application_Name` entry replaces the default node name, and `TimeZone` and `timezone` are one name, sent once with the last value. Before, the driver sent both names, and with `Application_Name` the server used the node name.
 
 ## [0.20.0] - 2025-12-12

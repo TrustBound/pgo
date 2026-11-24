@@ -85,6 +85,16 @@ format_error(client_timeout) ->
     "client timed out".
 
 init({Pool, PoolConfig}) ->
+    case pgo_handler:check_startup_options(PoolConfig) of
+        ok ->
+            init_pool(Pool, PoolConfig);
+        {error, Reason} ->
+            %% {error, Reason} (OTP 26), not {stop, Reason}: the linked
+            %% caller gets the error, but no exit signal.
+            {error, Reason}
+    end.
+
+init_pool(Pool, PoolConfig) ->
     process_flag(trap_exit, true),
     QueueTid = ets:new(?MODULE, [protected, ordered_set]),
     {ok, _} = pgo_pool_sup:start_link(QueueTid, Pool, PoolConfig),
