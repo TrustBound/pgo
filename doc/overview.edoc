@@ -23,17 +23,17 @@ To try `pgo' simply modify `config/example.config' by replacing the `host', `dat
 
 ```
 [
-  {pgo, [{pools, [{default, #{pool_size => 10,
+  {pgo, [{pools, [{pgo_default, #{pool_size => 10,
                               host => "127.0.0.1",
                               database => "test",
                               user => "test"}}]}]}
 ].
 '''
 
-`default' is the name of the pool, `size' is the number of connections to create for the pool. Or you can start the pool through `pgo:start_pool/2' which creates it as a child of `pgo' simple one for one:
+`pgo_default' is the name of the pool, `size' is the number of connections to create for the pool. Or you can start the pool through `pgo:start_pool/2' which creates it as a child of `pgo' simple one for one:
 
 ```
-> pgo:start_pool(default, #{pool_size => 5, host => "127.0.0.1", database => "test", user => "test"}).
+> pgo:start_pool(pgo_default, #{pool_size => 5, host => "127.0.0.1", database => "test", user => "test"}).
 '''
 
 Or start a pool as a child of your application's supervisor:
@@ -97,7 +97,7 @@ decode_option() :: return_rows_as_maps | {return_rows_as_maps, boolean()} |
 === Query Options ===
 
 <ul>
-<li> `pool' (default: `default'): Name of the pool to use for checking out a connection to the database.</li>
+<li> `pool' (default: `pgo_default'): Name of the pool to use for checking out a connection to the database.</li>
 <li> `return_rows_as_maps' (default: `false'): When `true' each row is returned as a map of column name to value instead of a list of values.</li>
 <li> `column_name_as_atom' (default: `false'): If `true' converts each column name in the result to an atom.</li>
 <li> `decode_fun' (default: `undefined'): Optional function for performing transformations on each row in a result. It must be a 2-arity function returning a list or map for the row and takes the row (as a list or map) and a list of `#row_description_field{}' records.</li>
@@ -133,7 +133,7 @@ A [https://github.com/beam-telemetry/telemetry Telemetry] event `[pgo, query]' c
 [https://opencensus.io/ OpenCensus] spans can be enabled for queries and transactions by either setting the `trace_default' to `true' for the pool:
 
 ```
-> pgo:start_pool(default, #{host => "127.0.0.1",
+> pgo:start_pool(pgo_default, #{host => "127.0.0.1",
                             database => "test",
                             user => "test",
                             pool_size => 5}]).

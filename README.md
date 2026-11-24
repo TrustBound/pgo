@@ -33,7 +33,7 @@ To try `pgo` simply modify `config/example.config` by replacing the `host`, `dat
 ].
 ```
 
-`default` is the name of the pool, `size` is the number of connections to create for the pool. Or you can start the pool through `pgo:start_pool/2` which creates it as a child of `pgo`'s simple one for one:
+`pgo_default` is the name of the pool, `size` is the number of connections to create for the pool. Or you can start the pool through `pgo:start_pool/2` which creates it as a child of `pgo`'s simple one for one:
 
 ``` erlang
 > application:ensure_all_started(pgo).
@@ -137,7 +137,7 @@ decode_option() :: return_rows_as_maps | {return_rows_as_maps, boolean()} |
 [OpenTelemetry](https://opentelemetry.io/) spans can be enabled for queries and transactions by either setting the `trace` to `true` for the pool:
 
 ``` erlang
-> pgo:start_pool(default, #{host => "127.0.0.1", 
+> pgo:start_pool(pgo_default, #{host => "127.0.0.1", 
                             database => "test", 
                             user => "test",
                             pool_size => 5,
