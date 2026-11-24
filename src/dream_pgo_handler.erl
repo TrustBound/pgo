@@ -137,7 +137,16 @@ open(Pool, PoolConfig) ->
                                            _ ->    gen_tcp
                                        end,
                          decode_opts=DefaultDecodeOpts},
-            setup(Conn, PoolConfig);
+            case setup(Conn, PoolConfig) of
+                {error, _} = SetupError ->
+                    %% The server refused SSL or the startup, or the
+                    %% socket failed. The connection process lives on and
+                    %% tries again, so it must not keep the socket.
+                    _ = gen_tcp:close(Socket),
+                    SetupError;
+                Result ->
+                    Result
+            end;
         {error, _} = ConnectError ->
             ConnectError
     end.
@@ -166,7 +175,13 @@ setup_ssl(Conn=#conn{socket=Socket}, Options) ->
                     SSLOptions = default_ssl_options(Options, UserSSLOptions),
                     case ssl:connect(Socket, [binary, {packet, raw}, {active, false} | SSLOptions]) of
                         {ok, SSLSocket} ->
-                            setup_startup(Conn#conn{socket=SSLSocket}, Options);
+                            case setup_startup(Conn#conn{socket=SSLSocket}, Options) of
+                                {error, _} = StartupError ->
+                                    _ = ssl:close(SSLSocket),
+                                    StartupError;
+                                Result ->
+                                    Result
+                            end;
                         {error, _} = SSLConnectErr ->
                             gen_tcp:close(Socket),
                             SSLConnectErr

@@ -18,7 +18,8 @@ groups() ->
      {ssl, [], [int4_range, exceptions, ssl_connect_failure_closes_socket,
                  ssl_ca_file_replaces_default_ca_certificates,
                  ssl_default_rejects_unknown_ca, ssl_host_name_mismatch_fails,
-                 ssl_ip_address_host, ssl_verify_none_replaces_default]},
+                 ssl_ip_address_host, ssl_verify_none_replaces_default,
+                 ssl_refused_closes_socket, startup_error_closes_socket]},
      {domain_socket, [], [int4_range]}].
 
 cases() ->
@@ -255,6 +256,31 @@ ssl_verify_none_replaces_default(_Config) ->
                                                    [{verify, verify_none}])),
     dream_pgo_handler:close(Conn).
 
+%% The server on port 5432 has no SSL and answers N to the SSL request
+ssl_refused_closes_socket(_Config) ->
+    TcpPortsBefore = tcp_ports(),
+    ?assertEqual({error, ssl_refused},
+                 dream_pgo_handler:open(default,
+                                        ssl_config(#{host => "localhost", port => 5432},
+                                                   [{verify, verify_none}]))),
+    ?assertEqual(TcpPortsBefore, tcp_ports()).
+
+%% The server answers the startup packet with an error
+startup_error_closes_socket(_Config) ->
+    TcpPortsBefore = tcp_ports(),
+    ?assertMatch({error, {dream_pgo_error, #{code := <<"28000">>}}},
+                 dream_pgo_handler:open(default, #{host => "localhost",
+                                                   port => 5432,
+                                                   user => "no_such_role",
+                                                   password => "password",
+                                                   database => "test"})),
+    ?assertMatch({error, {dream_pgo_error, #{code := <<"28000">>}}},
+                 dream_pgo_handler:open(default,
+                                        ssl_config(#{host => "localhost",
+                                                     user => "no_such_role"},
+                                                   [{verify, verify_none}]))),
+    ?assertEqual(TcpPortsBefore, tcp_ports()).
+
 ssl_config(Options, SSLOptions) ->
     maps:merge(#{port => 5434,
                  user => "test",
@@ -265,6 +291,9 @@ ssl_config(Options, SSLOptions) ->
 
 test_ca_file() ->
     "../../../../test/certs/ca.crt".
+
+tcp_ports() ->
+    [P || P <- erlang:ports(), erlang:port_info(P, name) =:= {name, "tcp_inet"}].
 
 select(_Config) ->
     {error, {Module, Reason}} = dream_pgo:query("select $1", []),
