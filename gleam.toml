@@ -7,7 +7,7 @@ version = "0.20.0"
 licences = ["Apache-2.0"]
 description = "Postgres client with connection pool, a fork of pgo"
 
-repository = { type = "github", user = "TrustBound", repo = "dream_pgo" }
+repository = { type = "github", user = "TrustBound", repo = "pgo" }
 links = [{ title = "Upstream pgo", href = "https://github.com/erleans/pgo" }]
 
 [dependencies]
