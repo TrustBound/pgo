@@ -9,7 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 First release of the `dream_pgo` fork, based on pgo 0.20.0.
 
+### Added
+- `gleam.toml`, so that a Gleam project can use a local copy of `dream_pgo` as a path dependency. rebar3 does not read it.
+
 ### Changed
+- The Common Test suites moved from `test/` to `ct/`, because the Gleam build tool compiles the `test/` directory of a path dependency. `rebar3 ct` finds them through `ct_opts`.
 - Rename the OTP application, the Hex package and all modules from `pgo` to `dream_pgo`.
 - Rename the error tag `pgo_error` to `dream_pgo_error`, the trace span names to `dream_pgo:query/3` and `dream_pgo:transaction/2`, and the process dictionary key to `dream_pgo_transaction_connection`.
 

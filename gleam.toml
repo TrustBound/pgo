@@ -1,0 +1,19 @@
+# The Gleam build tool reads this file. A Gleam project can then use
+# dream_pgo as a path dependency, and `gleam publish` can publish it.
+# rebar3 reads rebar.config and src/dream_pgo.app.src. Keep the version,
+# the dependencies and the application settings the same in both.
+name = "dream_pgo"
+version = "0.20.0"
+licences = ["Apache-2.0"]
+description = "Postgres client with connection pool, a fork of pgo"
+
+repository = { type = "github", user = "TrustBound", repo = "dream_pgo" }
+links = [{ title = "Upstream pgo", href = "https://github.com/erleans/pgo" }]
+
+[dependencies]
+backoff = ">= 1.1.6 and < 2.0.0"
+pg_types = ">= 0.6.0 and < 0.7.0"
+opentelemetry_api = ">= 1.5.0 and < 2.0.0"
+
+[erlang]
+application_start_module = "dream_pgo_app"
