@@ -5,9 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.0.0] - 2026-11-24
 
-First release of the `dream_postgres_driver` fork, based on pgo 0.20.0.
+First release of the `dream_postgres_driver` fork, based on pgo 0.20.0 and the pgo `main` branch up to commit `1c8bf6f`.
+
+Tests: 132 Common Test cases pass in about 14 seconds against PostgreSQL 17 in Docker (OTP 28.5, Apple M1 Max, 64 GB, macOS 26.5.1). CI runs them on OTP 26, 27 and 28 with dialyzer.
 
 ### Added
 - `gleam.toml`, so that a Gleam project can use a local copy of `dream_postgres_driver` as a path dependency. rebar3 does not read it.
