@@ -16,7 +16,9 @@ all() ->
 groups() ->
     [{clear, [], cases()},
      {ssl, [], [int4_range, exceptions, ssl_connect_failure_closes_socket,
-                 ssl_ca_file_replaces_default_ca_certificates]},
+                 ssl_ca_file_replaces_default_ca_certificates,
+                 ssl_default_rejects_unknown_ca, ssl_host_name_mismatch_fails,
+                 ssl_ip_address_host, ssl_verify_none_replaces_default]},
      {domain_socket, [], [int4_range]}].
 
 cases() ->
@@ -223,6 +225,46 @@ ssl_ca_file_replaces_default_ca_certificates(_Config) ->
                                           ssl_options => [{cacertfile, "../../../../test/certs/ca.crt"}]}),
     dream_pgo_handler:close(Conn),
     ok.
+
+%% With no ssl_options, the driver checks the server certificate against
+%% the CA certificates of the system. The test CA is not one of them.
+ssl_default_rejects_unknown_ca(_Config) ->
+    ?assertMatch({error, {tls_alert, {unknown_ca, _}}},
+                 dream_pgo_handler:open(default, ssl_config(#{host => "localhost"}, []))).
+
+%% The default host name check uses the host as the reference name. A
+%% server_name_indication from the caller replaces it.
+ssl_host_name_mismatch_fails(_Config) ->
+    ?assertMatch({error, {tls_alert, {handshake_failure, _}}},
+                 dream_pgo_handler:open(default,
+                                        ssl_config(#{host => "localhost"},
+                                                   [{cacertfile, test_ca_file()},
+                                                    {server_name_indication, "other.example.com"}]))).
+
+%% The server certificate has 127.0.0.1 as an IP address name
+ssl_ip_address_host(_Config) ->
+    {ok, Conn} = dream_pgo_handler:open(default,
+                                        ssl_config(#{host => "127.0.0.1"},
+                                                   [{cacertfile, test_ca_file()}])),
+    dream_pgo_handler:close(Conn).
+
+%% verify_none from the caller replaces the default verify_peer
+ssl_verify_none_replaces_default(_Config) ->
+    {ok, Conn} = dream_pgo_handler:open(default,
+                                        ssl_config(#{host => "localhost"},
+                                                   [{verify, verify_none}])),
+    dream_pgo_handler:close(Conn).
+
+ssl_config(Options, SSLOptions) ->
+    maps:merge(#{port => 5434,
+                 user => "test",
+                 password => "password",
+                 database => "test",
+                 ssl => true,
+                 ssl_options => SSLOptions}, Options).
+
+test_ca_file() ->
+    "../../../../test/certs/ca.crt".
 
 select(_Config) ->
     {error, {Module, Reason}} = dream_pgo:query("select $1", []),
