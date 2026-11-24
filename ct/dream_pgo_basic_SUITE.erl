@@ -19,7 +19,9 @@ groups() ->
                  ssl_ca_file_replaces_default_ca_certificates,
                  ssl_default_rejects_unknown_ca, ssl_host_name_mismatch_fails,
                  ssl_ip_address_host, ssl_verify_none_replaces_default,
-                 ssl_refused_closes_socket, startup_error_closes_socket]},
+                 ssl_refused_closes_socket, startup_error_closes_socket,
+                 ssl_unexpected_response_closes_socket,
+                 ssl_response_closed_closes_socket]},
      {domain_socket, [], [int4_range]}].
 
 cases() ->
@@ -280,6 +282,55 @@ startup_error_closes_socket(_Config) ->
                                                      user => "no_such_role"},
                                                    [{verify, verify_none}]))),
     ?assertEqual(TcpPortsBefore, tcp_ports()).
+
+%% A fake server answers the SSL request with a byte that is not S or N
+ssl_unexpected_response_closes_socket(_Config) ->
+    TcpPortsBefore = tcp_ports(),
+    {Port, Server} = fake_ssl_request_server(fun(Socket) -> gen_tcp:send(Socket, <<"X">>) end),
+    ?assertEqual({error, {unexpected_ssl_response, <<"X">>}},
+                 dream_pgo_handler:open(default,
+                                        ssl_config(#{host => "127.0.0.1", port => Port},
+                                                   [{verify, verify_none}]))),
+    ?assertEqual({error, closed}, fake_server_result(Server)),
+    ?assertEqual(TcpPortsBefore, tcp_ports()).
+
+%% A fake server closes the connection when it gets the SSL request
+ssl_response_closed_closes_socket(_Config) ->
+    TcpPortsBefore = tcp_ports(),
+    {Port, Server} = fake_ssl_request_server(fun(Socket) -> gen_tcp:shutdown(Socket, write) end),
+    ?assertEqual({error, closed},
+                 dream_pgo_handler:open(default,
+                                        ssl_config(#{host => "127.0.0.1", port => Port},
+                                                   [{verify, verify_none}]))),
+    ?assertEqual({error, closed}, fake_server_result(Server)),
+    ?assertEqual(TcpPortsBefore, tcp_ports()).
+
+%% Accepts one connection, reads the 8 bytes of the SSL request, calls
+%% Answer with the socket, and then waits for the client to close the
+%% socket. The result of that last receive goes to the test process.
+fake_ssl_request_server(Answer) ->
+    Parent = self(),
+    {ok, Listen} = gen_tcp:listen(0, [binary, {active, false}, {ip, loopback}]),
+    {ok, Port} = inet:port(Listen),
+    Server = spawn_link(
+               fun() ->
+                       {ok, Socket} = gen_tcp:accept(Listen, 5000),
+                       {ok, <<8:32, 80877103:32>>} = gen_tcp:recv(Socket, 8, 5000),
+                       ok = Answer(Socket),
+                       Result = gen_tcp:recv(Socket, 0, 5000),
+                       ok = gen_tcp:close(Socket),
+                       ok = gen_tcp:close(Listen),
+                       Parent ! {self(), Result}
+               end),
+    ok = gen_tcp:controlling_process(Listen, Server),
+    {Port, Server}.
+
+fake_server_result(Server) ->
+    receive
+        {Server, Result} -> Result
+    after 10000 ->
+            ct:fail(fake_server_timeout)
+    end.
 
 ssl_config(Options, SSLOptions) ->
     maps:merge(#{port => 5434,

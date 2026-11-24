@@ -188,7 +188,13 @@ setup_ssl(Conn=#conn{socket=Socket}, Options) ->
                     end;
                 {ok, <<$N>>} ->
                     % server is unwilling
-                    {error, ssl_refused}
+                    {error, ssl_refused};
+                {ok, Other} ->
+                    %% Not an answer to the SSL request. open/2 closes
+                    %% the socket.
+                    {error, {unexpected_ssl_response, Other}};
+                {error, _} = ReceiveError ->
+                    ReceiveError
             end;
         {error, _} = SendSSLRequestError ->
             SendSSLRequestError
