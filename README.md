@@ -9,6 +9,20 @@ What is different from pgo:
 * The null byte check. PostgreSQL strings in the startup packet cannot hold a null byte. A pool whose password, user, database, application name or `connection_parameters` hold a null byte does not start: `dream_pgo:start_pool/2` returns `{error, {null_byte, password}}` or `{error, {null_byte, {parameter, Name}}}`. A password given as a function is known only at connect time: each connection attempt calls the function and checks the value it returns before it sends anything. A null byte in that value stops the connection attempt with `{error, {null_byte, password}}`. The error never holds the value.
 * `gleam.toml`. With this file, a Gleam project can use a local copy of `dream_pgo` as a path dependency. rebar3 does not read it. The Gleam build tool compiles the `test/` directory of a path dependency, so the Common Test suites are in `ct/` (`{ct_opts, [{dir, "ct"}]}` in `rebar.config`). `rebar3 ct` runs them as before. The test certificates stay in `test/certs`.
 
+* Type modules. pg_types 0.6.0 cannot read some built-in PostgreSQL types. dream_pgo carries a reader for each in a `dream_pgo_type_*` module, until a pg_types release has it. Each module names the pg_types change that it mirrors. At start, `dream_pgo_app` puts these modules first in the pg_types `modules` setting. Modules that you set stay after them, so your module replaces a dream_pgo module for the same type. The carried types:
+  * `oid`, the `reg*` types, `xid` and `cid` decode to an integer.
+  * `timetz` is `{{Hours, Minutes, Seconds}, OffsetSecondsEastOfUTC}`.
+  * `money` is an integer in the smallest unit of the currency.
+  * `macaddr8` is a tuple of 8 bytes.
+  * `box` is `#{point1 => #{x, y}, point2 => #{x, y}}`.
+  * `xml`, `cstring` and `jsonpath` are binaries.
+  * `pg_lsn` and `xid8` are integers.
+  * `pg_snapshot` and `txid_snapshot` are `#{xmin, xmax, xip}`.
+  * `void` is the atom `void`.
+  * `int2vector` and `oidvector` are lists of integers.
+  * A multirange is a list of ranges, in the form of pg_types ranges.
+  * `tsquery` is the query tree: `{Lexeme, Weights, Prefix}`, `{'not', Q}`, `{'and', Q, Q}`, `{'or', Q, Q}`, `{phrase, Distance, Q, Q}` or `empty`.
+
 The rest of this README is the pgo README, with the module names changed.
 
 ## pgo

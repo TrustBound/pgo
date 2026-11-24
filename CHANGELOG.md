@@ -11,6 +11,8 @@ First release of the `dream_pgo` fork, based on pgo 0.20.0.
 
 ### Added
 - `gleam.toml`, so that a Gleam project can use a local copy of `dream_pgo` as a path dependency. rebar3 does not read it.
+- Read and write the PostgreSQL types that pg_types 0.6.0 does not read: `oid` (pg_types registered it under the wrong send function), the `reg*` types (`regnamespace`, `regrole`, `regconfig`, `regdictionary` and `regcollation` are new, and all `reg*` types, `xid` and `cid` now decode to an integer), `timetz`, `money`, `macaddr8`, `box`, `xml`, `cstring`, `jsonpath`, `pg_lsn`, `xid8`, `pg_snapshot`, `txid_snapshot`, `void`, `int2vector`, `oidvector`, the multirange types and `tsquery`. dream_pgo carries one `dream_pgo_type_*` module for each, until a pg_types release has the reader.
+- At start, the application puts its type modules first in the pg_types `modules` setting. Modules that the user set stay after them, so a user module still replaces a dream_pgo module for the same type.
 
 ### Changed
 - The Common Test suites moved from `test/` to `ct/`, because the Gleam build tool compiles the `test/` directory of a path dependency. `rebar3 ct` finds them through `ct_opts`.
