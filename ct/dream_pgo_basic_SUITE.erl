@@ -236,13 +236,41 @@ ssl_default_rejects_unknown_ca(_Config) ->
                  dream_pgo_handler:open(default, ssl_config(#{host => "localhost"}, []))).
 
 %% The default host name check uses the host as the reference name. A
-%% server_name_indication from the caller replaces it.
+%% server_name_indication from the caller replaces it. The ssl application
+%% of OTP picks the alert for a failed host name check, and OTP-20130
+%% (ssl 11.1.4.13, 11.2.12.8 and 11.6.0.1) changed it from
+%% handshake_failure to bad_certificate. So the test gets the error from
+%% ssl itself: with the same server and the same check, the name in the
+%% certificate connects, and other.example.com gives the error that
+%% dream_pgo must return.
 ssl_host_name_mismatch_fails(_Config) ->
-    ?assertMatch({error, {tls_alert, {handshake_failure, _}}},
+    Check = [{verify, verify_peer},
+             {cacertfile, test_ca_file()},
+             {customize_hostname_check,
+              [{match_fun, public_key:pkix_verify_hostname_match_fun(https)}]}],
+    {ok, SSLSocket} = ssl_connect_ssl_server([{server_name_indication, "localhost"} | Check]),
+    ok = ssl:close(SSLSocket),
+    Expected = ssl_connect_ssl_server([{server_name_indication, "other.example.com"} | Check]),
+    ?assertMatch({error, {tls_alert, _}}, Expected),
+    ?assertEqual(Expected,
                  dream_pgo_handler:open(default,
                                         ssl_config(#{host => "localhost"},
                                                    [{cacertfile, test_ca_file()},
                                                     {server_name_indication, "other.example.com"}]))).
+
+%% Sends the SSL request to the SSL server and does the TLS handshake with
+%% ssl:connect/3 and the given options only, without dream_pgo
+ssl_connect_ssl_server(SSLOptions) ->
+    {ok, Socket} = gen_tcp:connect("localhost", 5434, [binary, {active, false}], 5000),
+    ok = gen_tcp:send(Socket, <<8:32, 80877103:32>>),
+    {ok, <<"S">>} = gen_tcp:recv(Socket, 1, 5000),
+    case ssl:connect(Socket, [binary, {active, false} | SSLOptions], 5000) of
+        {ok, SSLSocket} ->
+            {ok, SSLSocket};
+        {error, _} = Error ->
+            ok = gen_tcp:close(Socket),
+            Error
+    end.
 
 %% The server certificate has 127.0.0.1 as an IP address name
 ssl_ip_address_host(_Config) ->
@@ -267,21 +295,33 @@ ssl_refused_closes_socket(_Config) ->
                                                    [{verify, verify_none}]))),
     ?assertEqual(TcpPortsBefore, tcp_ports()).
 
-%% The server answers the startup packet with an error
+%% The server refuses the login of a role that does not exist. As on CI,
+%% a TCP login needs the scram-sha-256 password, so the server does the
+%% SASL exchange and then refuses with invalid_password (28P01), and does
+%% not tell that the role does not exist.
 startup_error_closes_socket(_Config) ->
     TcpPortsBefore = tcp_ports(),
-    ?assertMatch({error, {dream_pgo_error, #{code := <<"28000">>}}},
-                 dream_pgo_handler:open(default, #{host => "localhost",
-                                                   port => 5432,
-                                                   user => "no_such_role",
-                                                   password => "password",
-                                                   database => "test"})),
-    ?assertMatch({error, {dream_pgo_error, #{code := <<"28000">>}}},
-                 dream_pgo_handler:open(default,
-                                        ssl_config(#{host => "localhost",
-                                                     user => "no_such_role"},
-                                                   [{verify, verify_none}]))),
+    Refused = {dream_pgo_error, #{code => <<"28P01">>,
+                                  message => <<"password authentication failed for user \"no_such_role\"">>}},
+    ?assertEqual({error, Refused},
+                 refused_fields(dream_pgo_handler:open(default, #{host => "localhost",
+                                                                  port => 5432,
+                                                                  user => "no_such_role",
+                                                                  password => "password",
+                                                                  database => "test"}))),
+    ?assertEqual({error, Refused},
+                 refused_fields(dream_pgo_handler:open(default,
+                                                       ssl_config(#{host => "localhost",
+                                                                    user => "no_such_role"},
+                                                                  [{verify, verify_none}])))),
     ?assertEqual(TcpPortsBefore, tcp_ports()).
+
+%% The fields of a server error that do not change with the PostgreSQL
+%% build: the line number in the source of the server does
+refused_fields({error, {dream_pgo_error, Fields}}) ->
+    {error, {dream_pgo_error, maps:with([code, message], Fields)}};
+refused_fields(Other) ->
+    Other.
 
 %% A fake server answers the SSL request with a byte that is not S or N
 ssl_unexpected_response_closes_socket(_Config) ->
