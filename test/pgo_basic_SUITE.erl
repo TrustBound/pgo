@@ -48,21 +48,13 @@ init_per_group(clear, Config) ->
     Config;
 init_per_group(ssl, Config) ->
     application:ensure_all_started(pgo),
+    %% test/certs/server.crt is signed by the test CA in test/certs/ca.crt
+    {ok, CaPem} = file:read_file("../../../../test/certs/ca.crt"),
+    CaCerts = [Der || {'Certificate', Der, not_encrypted} <- public_key:pem_decode(CaPem)],
     {ok, _} = pgo_sup:start_child(pgo_default, #{pool_size => 1,
                                                  port => 5434,
                                                  ssl => true,
-                                                 ssl_options => [{verify_type, verify_peer},
-                                                                 {cacertfile, "../../../../test/certs/server.crt"},
-                                                                 {verify_fun, {fun (_, valid, U) ->
-                                                                                       {valid, U};
-                                                                                   (_, valid_peer, U) ->
-                                                                                       {valid, U};
-                                                                                   (_, {bad_cert, selfsigned_peer}, U) ->
-                                                                                       {valid, U};
-                                                                                   (_, Reason, _U) ->
-                                                                                       {fail, Reason}
-                                                                               end, []}}
-                                                                ],
+                                                 ssl_options => [{cacerts, CaCerts}],
                                                  database => "test",
                                                  user => "test",
                                                  password => "password"}),
