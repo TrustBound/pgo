@@ -4,6 +4,10 @@
 %% interval and on an interval of 24 hours or more: it decoded the time part
 %% as a time of day. Mirrors the decode of pg_types pull request #25. Remove
 %% this module when a pg_types release has the fix.
+%%
+%% PostgreSQL 17 and later also have the infinite intervals 'infinity' and
+%% '-infinity'. They decode to the atoms infinity and '-infinity', as for
+%% timestamps, and these atoms encode back.
 
 -behaviour(pg_types).
 
@@ -18,20 +22,35 @@
 -define(SECS_PER_MINUTE, 60).
 -define(SECS_PER_HOUR, 3600).
 
+%% PostgreSQL sets all three fields of an infinite interval to the largest
+%% or to the smallest integer (INTERVAL_NOEND and INTERVAL_NOBEGIN)
+-define(INT64_MAX, 16#7FFFFFFFFFFFFFFF).
+-define(INT64_MIN, -16#8000000000000000).
+-define(INT32_MAX, 16#7FFFFFFF).
+-define(INT32_MIN, -16#80000000).
+
 init(_Opts) ->
     {[<<"interval_send">>], []}.
 
+encode(infinity, _) ->
+    <<16:?int32, ?INT64_MAX:?int64, ?INT32_MAX:?int32, ?INT32_MAX:?int32>>;
+encode('-infinity', _) ->
+    <<16:?int32, ?INT64_MIN:?int64, ?INT32_MIN:?int32, ?INT32_MIN:?int32>>;
 encode({interval, {T, D, M}}, _) ->
     <<16:?int32, (pg_time:encode_time(T)):?int64, D:?int32, M:?int32>>;
 encode({T, D, M}, _) ->
     <<16:?int32, (pg_time:encode_time(T)):?int64, D:?int32, M:?int32>>.
 
+decode(<<?INT64_MAX:?int64, ?INT32_MAX:?int32, ?INT32_MAX:?int32>>, _) ->
+    infinity;
+decode(<<?INT64_MIN:?int64, ?INT32_MIN:?int32, ?INT32_MIN:?int32>>, _) ->
+    '-infinity';
 decode(<<Microseconds:?int64, Days:?int32, Months:?int32>>, _) ->
     {interval, {decode_interval_time(Microseconds), Days, Months}}.
 
-%% the same type spec as pg_interval, the text of encoding errors stays the same
+%% the type spec of pg_interval, with the infinite intervals added
 type_spec() ->
-    "{interval {{Hours::integer(), Minutes::integer(), "
+    "infinity | '-infinity' | {interval {{Hours::integer(), Minutes::integer(), "
     "Seconds::integer()}, Days::integer(), months::integer()}}".
 
 %%

@@ -14,7 +14,7 @@
 
 all() ->
     [registered_modules, numrange, time_24, timetz_24, interval_negative,
-     interval_over_24_hours, date_infinity].
+     interval_over_24_hours, interval_infinity, date_infinity].
 
 init_per_suite(Config) ->
     {ok, _} = application:ensure_all_started(dream_pgo),
@@ -60,6 +60,21 @@ interval_over_24_hours(_Config) ->
     literal("select '100 hours'::interval", {interval, {{100, 0, 0}, 0, 0}}),
     literal("select '24:00:00'::interval", {interval, {{24, 0, 0}, 0, 0}}),
     round_trip("interval", {interval, {{100, 0, 0}, 0, 0}}, <<"100:00:00">>).
+
+%% PostgreSQL 17 and later: an infinite interval has all three fields at the
+%% largest or the smallest integer
+interval_infinity(_Config) ->
+    literal("select 'infinity'::interval", infinity),
+    literal("select '-infinity'::interval", '-infinity'),
+    round_trip("interval", infinity, <<"infinity">>),
+    round_trip("interval", '-infinity', <<"-infinity">>),
+    ?assertEqual([{true, true}],
+                 dream_pgo_test_utils:rows("select $1::interval = 'infinity'::interval, "
+                                           "$2::interval = '-infinity'::interval",
+                                           [infinity, '-infinity'])),
+    %% one field at the limit is a finite interval
+    literal("select make_interval(days => 2147483647)",
+            {interval, {{0, 0, 0}, 2147483647, 0}}).
 
 date_infinity(_Config) ->
     literal("select 'infinity'::date", infinity),

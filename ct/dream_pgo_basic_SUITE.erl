@@ -185,7 +185,7 @@ tstz_range(_Config) ->
 
 exceptions(_Config) ->
     {error, Reason} = dream_pgo:query("select $1::interval", [none]),
-    ?assertMatch("Error encoding type interval. Expected, {interval {{Hours::integer(), Minutes::integer(), Seconds::integer()}, Days::integer(), months::integer()}}. Got, none.", lists:flatten(dream_pgo:format_error(Reason))),
+    ?assertMatch("Error encoding type interval. Expected, infinity | '-infinity' | {interval {{Hours::integer(), Minutes::integer(), Seconds::integer()}, Days::integer(), months::integer()}}. Got, none.", lists:flatten(dream_pgo:format_error(Reason))),
 
     ok.
 
