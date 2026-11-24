@@ -16,8 +16,15 @@
 start_link() ->
     supervisor:start_link({local, ?SERVER}, ?MODULE, []).
 
+%% The supervisor keeps the start arguments of each pool, so the password
+%% goes in as a function (see dream_pgo_pool:prepare_pool_config/1).
 start_child(Name, PoolConfig) ->
-    supervisor:start_child(?SERVER, [Name, PoolConfig]).
+    case dream_pgo_pool:prepare_pool_config(PoolConfig) of
+        {ok, PoolConfig1} ->
+            supervisor:start_child(?SERVER, [Name, PoolConfig1]);
+        {error, _} = Error ->
+            Error
+    end.
 
 %%====================================================================
 %% Supervisor callbacks

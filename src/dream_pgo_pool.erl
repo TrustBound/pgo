@@ -3,6 +3,7 @@
 -module(dream_pgo_pool).
 
 -export([start_link/2,
+         prepare_pool_config/1,
          checkout/2,
          checkin/3,
          disconnect/4,
@@ -41,8 +42,35 @@ tid(Pool) ->
 -endif.
 
 start_link(Pool, PoolConfig) ->
+    case prepare_pool_config(PoolConfig) of
+        {ok, PoolConfig1} ->
+            gen_server:start_link({local, Pool}, ?MODULE, {Pool, PoolConfig1}, []);
+        {error, _} = Error ->
+            Error
+    end.
+
+%% @doc Normalizes the pool configuration, refuses a null byte in the
+%% password or in a startup parameter, and puts a password string into a
+%% function. The supervisors keep the pool configuration in their child
+%% specs and print it in their status and in their reports: a function
+%% prints without its value. A password function from the caller is not
+%% changed, and is checked at connect time.
+-spec prepare_pool_config(dream_pgo:pool_config() | list())
+                         -> {ok, dream_pgo:pool_config()}
+                          | {error, {null_byte, password | {parameter, binary()}}}.
+prepare_pool_config(PoolConfig) ->
     PoolConfig1 = normalize_pool_config(PoolConfig),
-    gen_server:start_link({local, Pool}, ?MODULE, {Pool, PoolConfig1}, []).
+    case dream_pgo_handler:check_startup_options(PoolConfig1) of
+        ok ->
+            {ok, hide_password(PoolConfig1)};
+        {error, _} = Error ->
+            Error
+    end.
+
+hide_password(PoolConfig=#{password := Password}) when not is_function(Password) ->
+    PoolConfig#{password => fun() -> Password end};
+hide_password(PoolConfig) ->
+    PoolConfig.
 
 -spec checkout(atom(), list()) -> {ok, ref(), conn()} | {error, any()}.
 checkout(Pool, Opts) ->
@@ -84,17 +112,8 @@ format_error(none_available_no_queuing) ->
 format_error(client_timeout) ->
     "client timed out".
 
+%% start_link/2 checked the configuration
 init({Pool, PoolConfig}) ->
-    case dream_pgo_handler:check_startup_options(PoolConfig) of
-        ok ->
-            init_pool(Pool, PoolConfig);
-        {error, Reason} ->
-            %% {error, Reason} (OTP 26), not {stop, Reason}: the linked
-            %% caller gets the error, but no exit signal.
-            {error, Reason}
-    end.
-
-init_pool(Pool, PoolConfig) ->
     process_flag(trap_exit, true),
     QueueTid = ets:new(?MODULE, [protected, ordered_set]),
     {ok, _} = dream_pgo_pool_sup:start_link(QueueTid, Pool, PoolConfig),

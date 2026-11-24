@@ -16,7 +16,7 @@
 
 all() -> [checkout_checkin, checkout_break, recheckout, kill_socket, kill_pid,
           checkout_kill, checkout_disconnect, checkout_query_crash,
-          password_as_function, query_timeout].
+          password_as_function, query_timeout, password_not_in_status].
 
 init_per_suite(Config) ->
     Config.
@@ -268,3 +268,17 @@ query_timeout(Config) ->
                          pool_options => [{timeout, 500}]}),
     ?assertEqual({error, query_timeout}, Result),
     ok.
+
+%% No process of the application shows the password in its status: not
+%% the connections and not the supervisors, which keep the pool
+%% configuration in their child specs and print it in their reports.
+password_not_in_status(_Config) ->
+    Statuses = [{Pid, Status} || Pid <- erlang:processes(),
+                                 application:get_application(Pid) =:= {ok, dream_pgo},
+                                 %% the application master does not answer sys calls
+                                 {ok, Status} <- [catch {ok, sys:get_status(Pid, 1000)}]],
+    ?assert(length(Statuses) > 10),
+    ?assertEqual([], [proc_lib:translate_initial_call(Pid)
+                      || {Pid, Status} <- Statuses,
+                         string:find(io_lib:format("~p", [Status]),
+                                     "\"" ++ ?PASSWORD ++ "\"") =/= nomatch]).
