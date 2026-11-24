@@ -39,7 +39,8 @@ modules() ->
      dream_pgo_type_range,
      dream_pgo_type_time,
      dream_pgo_type_interval,
-     dream_pgo_type_date].
+     dream_pgo_type_date,
+     dream_pgo_type_anyarray].
 
 %% @doc Sets the pg_types `modules' setting to the dream_pgo modules,
 %% followed by the modules that were already set and are not dream_pgo

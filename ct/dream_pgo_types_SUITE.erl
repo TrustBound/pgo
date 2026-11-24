@@ -23,7 +23,8 @@ groups() ->
                   timetz, timetz_array, money, macaddr8, box, xml, cstring,
                   jsonpath, pg_lsn, xid8, pg_snapshot, txid_snapshot, void,
                   int2vector, oidvector, tsquery,
-                  multirange, nummultirange, multirange_base_oid]},
+                  multirange, nummultirange, multirange_base_oid,
+                  anyarray, anyarray_parameter]},
      {user_modules, [], [user_module_kept, restart_keeps_one_copy]}].
 
 init_per_suite(Config) ->
@@ -240,3 +241,33 @@ multirange(_Config) ->
 nummultirange(_Config) ->
     literal("select '{[1.5,2.5)}'::nummultirange", [{{1.5, 2.5}, {true, false}}]),
     round_trip("nummultirange", [{{1.5, 2.5}, {true, false}}], <<"{[1.5,2.5)}">>).
+
+%% anyarray: the columns of pg_stats
+
+anyarray(_Config) ->
+    #{command := create} = dream_pgo:query("create table anyarray_stats (v int4, t text)"),
+    try
+        #{command := insert} =
+            dream_pgo:query("insert into anyarray_stats values (1, 'a'), (1, 'a'), (1, 'a'), "
+                            "(2, 'b'), (2, 'b')"),
+        #{command := analyze} = dream_pgo:query("analyze anyarray_stats"),
+        ?assertEqual([{[1, 2]}],
+                     rows("select most_common_vals from pg_stats "
+                          "where tablename = 'anyarray_stats' and attname = 'v'")),
+        ?assertEqual([{[<<"a">>, <<"b">>]}],
+                     rows("select most_common_vals from pg_stats "
+                          "where tablename = 'anyarray_stats' and attname = 't'")),
+        ?assertEqual([{<<"{1,2}">>}],
+                     rows("select most_common_vals::text from pg_stats "
+                          "where tablename = 'anyarray_stats' and attname = 'v'"))
+    after
+        dream_pgo:query("drop table anyarray_stats")
+    end.
+
+%% PostgreSQL has no input for anyarray: the server refuses a parameter of
+%% that type before dream_pgo encodes it, and the module gives the encoding
+%% error of pg_types
+anyarray_parameter(_Config) ->
+    TypeInfo = pg_types:lookup_type_info(dream_pgo_default, oid_of("anyarray")),
+    ?assertMatch(#type_info{module=dream_pgo_type_anyarray}, TypeInfo),
+    ?assertError(#{error := badarg_encoding, value := [1]}, pg_types:encode([1], TypeInfo)).

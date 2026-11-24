@@ -22,6 +22,7 @@ What is different from pgo:
   * `int2vector` and `oidvector` are lists of integers.
   * A multirange is a list of ranges, in the form of pg_types ranges.
   * `tsquery` is the query tree: `{Lexeme, Weights, Prefix}`, `{'not', Q}`, `{'and', Q, Q}`, `{'or', Q, Q}`, `{phrase, Distance, Q, Q}` or `empty`.
+  * `anyarray` (such as `pg_stats.most_common_vals`) is a list. The element type comes from the element oid in the array. It is read only, because PostgreSQL does not accept a parameter of type `anyarray`.
 
   dream_pgo also replaces four pg_types readers that crash or give wrong values:
   * `dream_pgo_type_range` reads a range over a type of variable length, such as `numrange` (pg_types issue #21).
