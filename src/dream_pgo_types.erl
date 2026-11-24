@@ -35,7 +35,11 @@ modules() ->
      dream_pgo_type_void,
      dream_pgo_type_int_vector,
      dream_pgo_type_multirange,
-     dream_pgo_type_tsquery].
+     dream_pgo_type_tsquery,
+     dream_pgo_type_range,
+     dream_pgo_type_time,
+     dream_pgo_type_interval,
+     dream_pgo_type_date].
 
 %% @doc Sets the pg_types `modules' setting to the dream_pgo modules,
 %% followed by the modules that were already set and are not dream_pgo

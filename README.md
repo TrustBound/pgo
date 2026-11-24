@@ -23,6 +23,12 @@ What is different from pgo:
   * A multirange is a list of ranges, in the form of pg_types ranges.
   * `tsquery` is the query tree: `{Lexeme, Weights, Prefix}`, `{'not', Q}`, `{'and', Q, Q}`, `{'or', Q, Q}`, `{phrase, Distance, Q, Q}` or `empty`.
 
+  dream_pgo also replaces four pg_types readers that crash or give wrong values:
+  * `dream_pgo_type_range` reads a range over a type of variable length, such as `numrange` (pg_types issue #21).
+  * `dream_pgo_type_time` reads `24:00:00` as `{24, 0, 0}`, for `time` and `timetz`.
+  * `dream_pgo_type_interval` reads negative intervals and intervals of 24 hours or more. The hours can be 24 or more, and the parts have the sign of the interval (pg_types pull request #25).
+  * `dream_pgo_type_date` reads and writes `infinity` and `'-infinity'`.
+
 The rest of this README is the pgo README, with the module names changed.
 
 ## pgo

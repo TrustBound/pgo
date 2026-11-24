@@ -21,10 +21,10 @@ encode({Time={Hours, Minutes, Seconds}, Offset}, _TypeInfo) when is_integer(Hour
                                                                  is_integer(Minutes) ,
                                                                  (is_integer(Seconds) orelse is_float(Seconds)) ,
                                                                  is_integer(Offset) ->
-    <<12:?int32, (pg_time:encode_time(Time)):?int64, (-Offset):?int32>>.
+    <<12:?int32, (dream_pgo_type_time:encode_time(Time)):?int64, (-Offset):?int32>>.
 
 decode(<<Time:8/binary, Zone:?int32>>, _TypeInfo) ->
-    {pg_time:decode_time(Time), -Zone}.
+    {dream_pgo_type_time:decode_time(Time), -Zone}.
 
 type_spec() ->
     "{{Hours::integer(), Minutes::integer(), Seconds::integer() | float()}, UtcOffsetSeconds::integer()}".
