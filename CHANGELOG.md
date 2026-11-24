@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- A caller's `application_name` in `connection_parameters` replaces the default node name. Before, the driver sent both, and PostgreSQL used the last one.
+- The startup packet never holds a parameter name two times. The caller's `connection_parameters` need no sort order.
+- The documented pool option `application_name` now sets the application name.
+- The names of settings in `connection_parameters` have no case, as in PostgreSQL. An `Application_Name` entry replaces the default node name, and `TimeZone` and `timezone` are one name, sent once with the last value. Before, the driver sent both names, and with `Application_Name` the server used the node name.
+
 ## [0.20.0] - 2025-12-12
 
 ### Fixed

@@ -11,6 +11,10 @@
          close/1,
          process_active_data/3]).
 
+-ifdef(TEST).
+-export([startup_parameters/1]).
+-endif.
+
 -include("pgo_internal.hrl").
 
 -define(DEFAULT_HOST, "127.0.0.1").
@@ -166,19 +170,68 @@ setup_ssl(Conn=#conn{socket=Socket}, Options) ->
             SendSSLRequestError
     end.
 
+%% The parameters of the startup packet: user, database, then the caller's
+%% connection_parameters in the caller's order. The application_name pool
+%% option, or the node name when that option is not given, is added only
+%% when connection_parameters has no application_name. A name that occurs
+%% more than once is sent once, with its last value, which is the value
+%% PostgreSQL uses. PostgreSQL compares the names of settings without case,
+%% so `Application_Name' and `application_name' are the same name.
+startup_parameters(Options) ->
+    User = maps:get(user, Options, ?DEFAULT_USER),
+    Database = maps:get(database, Options, User),
+    ConnectionParams = maps:get(connection_parameters, Options, []),
+    HasApplicationName = lists:any(fun({Name, _}) ->
+                                           parameter_key(Name) =:= {setting, <<"application_name">>}
+                                   end, ConnectionParams),
+    DefaultParams = case HasApplicationName of
+                        true ->
+                            [];
+                        false ->
+                            [{<<"application_name">>, application_name(Options)}]
+                    end,
+    Params = [{<<"user">>, User}, {<<"database">>, Database} | ConnectionParams ++ DefaultParams],
+    {Unique, _} = lists:foldr(fun({Name, _}=Param, {Acc, Seen}) ->
+                                      Key = parameter_key(Name),
+                                      case maps:is_key(Key, Seen) of
+                                          true ->
+                                              {Acc, Seen};
+                                          false ->
+                                              {[Param | Acc], Seen#{Key => true}}
+                                      end
+                              end, {[], #{}}, Params),
+    Unique.
+
+%% The key that PostgreSQL uses for the name of a startup parameter. It
+%% compares user, database, options, replication and the `_pq_.' names
+%% with case, and the name of a setting without the case of the ASCII
+%% letters A to Z.
+parameter_key(Name) ->
+    case iolist_to_binary(Name) of
+        Key = <<"_pq_.", _/binary>> ->
+            Key;
+        Key when Key =:= <<"user">>; Key =:= <<"database">>;
+                 Key =:= <<"options">>; Key =:= <<"replication">> ->
+            Key;
+        Key ->
+            {setting, << <<(if C >= $A, C =< $Z -> C + 32; true -> C end)>>
+                         || <<C>> <= Key >>}
+    end.
+
+application_name(Options) ->
+    case maps:get(application_name, Options, node()) of
+        Name when is_atom(Name) ->
+            atom_to_binary(Name, utf8);
+        Name ->
+            Name
+    end.
+
 setup_startup(Conn=#conn{socket_module=SocketModule,
                          socket=Socket,
                          pool=Pool}, Options) ->
     %% Send startup packet connection packet.
-    User = maps:get(user, Options, ?DEFAULT_USER),
-    Database = maps:get(database, Options, User),
-    ConnectionParams = maps:get(connection_parameters, Options, []),
-    ConnectionParams1 = lists:keymerge(1, ConnectionParams,
-                                       [{<<"application_name">>, atom_to_binary(node(), utf8)}]),
     StartupMessage =
-        pgo_protocol:encode_startup_message([{<<"user">>, User},
-                                             {<<"database">>, Database}
-                                             | ConnectionParams1]),
+        pgo_protocol:encode_startup_message(startup_parameters(Options)),
     case SocketModule:send(Socket, StartupMessage) of
         ok ->
             case receive_message(SocketModule, Socket, Pool, [no_reload_types]) of

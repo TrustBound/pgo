@@ -62,6 +62,7 @@
                          user => string(),
                          password => string(),
                          database => string(),
+                         application_name => atom() | iodata(),
 
                          %% pool specific settings
                          pool_size => integer(),
