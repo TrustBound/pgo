@@ -15,7 +15,8 @@ all() ->
 
 groups() ->
     [{clear, [], cases()},
-     {ssl, [], [int4_range, exceptions, ssl_connect_failure_closes_socket]},
+     {ssl, [], [int4_range, exceptions, ssl_connect_failure_closes_socket,
+                 ssl_ca_file_replaces_default_ca_certificates]},
      {domain_socket, [], [int4_range]}].
 
 cases() ->
@@ -51,18 +52,7 @@ init_per_group(ssl, Config) ->
     {ok, _} = dream_pgo_sup:start_child(dream_pgo_default, #{pool_size => 1,
                                                  port => 5434,
                                                  ssl => true,
-                                                 ssl_options => [{verify_type, verify_peer},
-                                                                 {cacertfile, "../../../../test/certs/server.crt"},
-                                                                 {verify_fun, {fun (_, valid, U) ->
-                                                                                       {valid, U};
-                                                                                   (_, valid_peer, U) ->
-                                                                                       {valid, U};
-                                                                                   (_, {bad_cert, selfsigned_peer}, U) ->
-                                                                                       {valid, U};
-                                                                                   (_, Reason, _U) ->
-                                                                                       {fail, Reason}
-                                                                               end, []}}
-                                                                ],
+                                                 ssl_options => [{cacertfile, "../../../../test/certs/ca.crt"}],
                                                  database => "test",
                                                  user => "test",
                                                  password => "password"}),
@@ -217,6 +207,21 @@ ssl_connect_failure_closes_socket(_Config) ->
     TcpPortsAfter = [P || P <- erlang:ports(),
                           erlang:port_info(P, name) =:= {name, "tcp_inet"}],
     ?assertEqual(length(TcpPortsBefore), length(TcpPortsAfter)),
+    ok.
+
+ssl_ca_file_replaces_default_ca_certificates(_Config) ->
+    %% The test CA is not in the system list of CA certificates. The
+    %% connection succeeds only if the CA file from the caller replaces the
+    %% default CA certificates. The host name check stays on.
+    {ok, Conn} = dream_pgo_handler:open(default,
+                                        #{host => "localhost",
+                                          port => 5434,
+                                          user => "test",
+                                          password => "password",
+                                          database => "test",
+                                          ssl => true,
+                                          ssl_options => [{cacertfile, "../../../../test/certs/ca.crt"}]}),
+    dream_pgo_handler:close(Conn),
     ok.
 
 select(_Config) ->

@@ -179,22 +179,28 @@ setup_ssl(Conn=#conn{socket=Socket}, Options) ->
             SendSSLRequestError
     end.
 
+%% The secure defaults, without the defaults that an option from the caller
+%% replaces. The defaults go first, then the options from the caller.
 default_ssl_options(Options, UserSSLOptions) ->
     Host = maps:get(host, Options, ?DEFAULT_HOST),
     SNI = case is_list(Host) of
               true -> Host;
               false -> binary_to_list(iolist_to_binary([Host]))
           end,
-    Defaults = [{verify, verify_peer},
-                {cacerts, public_key:cacerts_get()},
-                {server_name_indication, SNI},
+    Defaults = [{verify, fun() -> verify_peer end},
+                {cacerts, fun public_key:cacerts_get/0},
+                {server_name_indication, fun() -> SNI end},
                 {customize_hostname_check,
-                 [{match_fun, public_key:pkix_verify_hostname_match_fun(https)}]}],
-    merge_ssl_options(Defaults, UserSSLOptions).
+                 fun() -> [{match_fun, public_key:pkix_verify_hostname_match_fun(https)}] end}],
+    Replaced = lists:flatmap(fun replaced_defaults/1, proplists:get_keys(UserSSLOptions)),
+    [{Key, Value()} || {Key, Value} <- Defaults, not lists:member(Key, Replaced)] ++ UserSSLOptions.
 
-merge_ssl_options(Defaults, UserOptions) ->
-    UserKeys = proplists:get_keys(UserOptions),
-    [Opt || {Key, _} = Opt <- Defaults, not lists:member(Key, UserKeys)] ++ UserOptions.
+%% The defaults that an option from the caller replaces. The ssl application
+%% ignores `cacertfile' when `cacerts' is set, so a CA file from the caller
+%% replaces the default CA certificates. The default CA certificates are
+%% then not read.
+replaced_defaults(cacertfile) -> [cacertfile, cacerts];
+replaced_defaults(Key) -> [Key].
 
 %% The parameters of the startup packet: user, database, then the caller's
 %% connection_parameters in the caller's order. The application_name pool

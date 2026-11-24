@@ -23,6 +23,8 @@ First release of the `dream_pgo` fork, based on pgo 0.20.0.
 - The documented pool option `application_name` now sets the application name.
 - A null byte in the password or in a startup parameter (user, database, `application_name`, any entry of `connection_parameters`) no longer goes to the server. Before, a null byte in the password crashed the pool, and a null byte in a parameter ended the string in the startup packet and could add a parameter. Now `dream_pgo:start_pool/2` returns `{error, {null_byte, password}}` or `{error, {null_byte, {parameter, Name}}}` and starts no pool. A password given as a function is checked at connect time: each connection attempt calls the function, and a null byte in the value it returns stops that attempt with `{error, {null_byte, password}}` before anything goes to the server.
 - The names of settings in `connection_parameters` have no case, as in PostgreSQL. An `Application_Name` entry replaces the default node name, and `TimeZone` and `timezone` are one name, sent once with the last value. Before, the driver sent both names, and with `Application_Name` the server used the node name.
+- A `cacertfile` in `ssl_options` replaces the default CA certificates from the system. Before, the driver also set `cacerts` to the system list, the ssl application ignored the `cacertfile`, and a server certificate from a private CA failed with `unknown_ca`. The driver now reads the system list only when the caller gives neither `cacertfile` nor `cacerts`.
+- The test certificates in `test/certs` are a test CA (`ca.crt`) and a server certificate for `localhost` and `127.0.0.1` that the CA signed. The old self-signed server certificate ended on 29 November 2026.
 
 ## [0.20.0] - 2025-12-12
 
