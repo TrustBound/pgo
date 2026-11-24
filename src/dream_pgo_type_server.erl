@@ -1,6 +1,7 @@
 -module(dream_pgo_type_server).
 
 -export([start_link/2,
+         clear/1,
          reload/1,
          reload_cast/1]).
 
@@ -19,6 +20,18 @@
 
 start_link(Pool, PoolConfig) ->
     gen_statem:start_link(?MODULE, [Pool, PoolConfig], []).
+
+%% Removes the types of Pool from the pg_types table. pg_types keeps the
+%% table for the life of its own application, so the types that an earlier
+%% pool of the same name loaded stay in it after that pool stops. A query
+%% finds a type in the table and does not wait for the load of the new
+%% pool, so it could decode with a module or an oid of the old pool. With
+%% no types in the table, a query asks the type server to load them and
+%% waits for the load. pg_types has no function to remove types.
+-spec clear(atom()) -> ok.
+clear(Pool) ->
+    true = ets:match_delete(?PG_TYPES_TABLE, {{Pool, '_'}, '_'}),
+    ok.
 
 reload(Pid) ->
     gen_statem:call(Pid, {reload, erlang:monotonic_time()}).

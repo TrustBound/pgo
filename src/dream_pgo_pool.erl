@@ -116,6 +116,8 @@ format_error(client_timeout) ->
 init({Pool, PoolConfig}) ->
     process_flag(trap_exit, true),
     QueueTid = ets:new(?MODULE, [protected, ordered_set]),
+    %% before a connection of this pool can run a query
+    ok = dream_pgo_type_server:clear(Pool),
     {ok, _} = dream_pgo_pool_sup:start_link(QueueTid, Pool, PoolConfig),
 
     Target = maps:get(queue_target, PoolConfig, ?QUEUE_TARGET),

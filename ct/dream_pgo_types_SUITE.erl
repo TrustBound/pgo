@@ -25,7 +25,8 @@ groups() ->
                   int2vector, oidvector, tsquery,
                   multirange, nummultirange, multirange_base_oid,
                   anyarray, anyarray_parameter]},
-     {user_modules, [], [user_module_kept, restart_keeps_one_copy]}].
+     {user_modules, [], [user_module_kept, restart_keeps_one_copy,
+                         start_drops_types_of_earlier_pool]}].
 
 init_per_suite(Config) ->
     Config.
@@ -95,6 +96,19 @@ restart_keeps_one_copy(_Config) ->
     start(),
     ?assertEqual({ok, dream_pgo_types:modules() ++ [dream_pgo_test_money_type]},
                  application:get_env(pg_types, modules)).
+
+%% The pg_types table keeps the types of a pool after the pool stops. A
+%% new pool of the same name must not use them: they can come from other
+%% modules or from another database. The oid is not an oid of the server,
+%% so the load of the new pool does not write it again.
+start_drops_types_of_earlier_pool(_Config) ->
+    Oid = 4000000000,
+    stop(),
+    true = ets:insert(?PG_TYPES_TABLE,
+                      {{dream_pgo_default, Oid},
+                       #type_info{oid=Oid, pool=dream_pgo_default, name= <<"old">>}}),
+    start(),
+    ?assertEqual(unknown_oid, pg_types:lookup_type_info(dream_pgo_default, Oid)).
 
 %% new types
 
