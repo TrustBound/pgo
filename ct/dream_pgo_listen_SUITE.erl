@@ -10,7 +10,7 @@ all() -> [listen_notify, named_listen_notify, listen_notify_special_name].
 init_per_suite(Config) ->
     application:ensure_all_started(dream_pgo),
 
-    {ok, _} = dream_pgo_sup:start_child(default, #{pool_size => 1,
+    {ok, _} = dream_pgo_sup:start_child(dream_pgo_default, #{pool_size => 1,
                                              port => 5432,
                                              database => "test",
                                              user => "test",

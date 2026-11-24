@@ -23,14 +23,14 @@ To try `dream_pgo' simply modify `config/example.config' by replacing the `host'
 
 ```
 [
-  {dream_pgo, [{pools, [{default, #{pool_size => 10,
+  {dream_pgo, [{pools, [{dream_pgo_default, #{pool_size => 10,
                               host => "127.0.0.1",
                               database => "test",
                               user => "test"}}]}]}
 ].
 '''
 
-`default' is the name of the pool, `size' is the number of connections to create for the pool. Or you can start the pool through `dream_pgo:start_pool/2' which creates it as a child of `dream_pgo' simple one for one:
+`dream_pgo_default' is the name of the pool, `size' is the number of connections to create for the pool. Or you can start the pool through `dream_pgo:start_pool/2' which creates it as a child of `dream_pgo' simple one for one:
 
 ```
 > dream_pgo:start_pool(default, #{pool_size => 5, host => "127.0.0.1", database => "test", user => "test"}).

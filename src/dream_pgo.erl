@@ -153,12 +153,12 @@ query(Query, Params, Options, Conn=#conn{trace=TraceDefault,
                                                   #{queue_time => undefined})
                end).
 
-%% @equiv transaction(default, Fun, [])
+%% @equiv transaction(dream_pgo_default, Fun, #{})
 -spec transaction(fun(() -> any())) -> any() | {error, any()}.
 transaction(Fun) ->
-    transaction(default, Fun, #{}).
+    transaction(dream_pgo_default, Fun, #{}).
 
-%% @equiv transaction(default, Fun, Options)
+%% @equiv transaction(dream_pgo_default, Fun, Options)
 -spec transaction(fun(() -> any()), options()) -> any() | {error, any()}.
 transaction(Fun, Options) when is_function(Fun) ->
     Pool = maps:get(pool, Options, dream_pgo_default),
