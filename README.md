@@ -1,15 +1,15 @@
-# dream_pgo
+# dream_postgres_driver
 
-`dream_pgo` is a fork of [pgo](https://github.com/erleans/pgo), the PostgreSQL client by the pgo authors. It is published on Hex as `dream_pgo`. The fork starts from pgo v0.20.0.
+`dream_postgres_driver` is a fork of [pgo](https://github.com/erleans/pgo), the PostgreSQL client by the pgo authors. It is published on Hex as `dream_postgres_driver`. The fork starts from pgo v0.20.0.
 
 What is different from pgo:
 
-* Names. The OTP application, the Hex package and every module have the `dream_pgo` prefix (`pgo` is `dream_pgo`, `pgo_pool` is `dream_pgo_pool`, and so on). The application environment key, the error tag `dream_pgo_error`, the trace span names and the transaction key in the process dictionary also use the new prefix. Thus `dream_pgo` and `pgo` can load in the same VM.
+* Names. The OTP application, the Hex package and every module have the `dream_postgres_driver` prefix (`pgo` is `dream_postgres_driver`, `pgo_pool` is `dream_postgres_driver_pool`, and so on). The application environment key, the error tag `dream_postgres_driver_error`, the trace span names and the transaction key in the process dictionary also use the new prefix. Thus `dream_postgres_driver` and `pgo` can load in the same VM.
 * The `application_name` fix. A caller's `application_name` in `connection_parameters` replaces the default. The driver sends the node name only when the caller gives no name. The startup packet never holds a parameter name two times, and the caller's order stays as it is. The pool option `application_name` (atom or iodata) also sets the name. An entry in `connection_parameters` takes precedence over the pool option.
-* The null byte check. PostgreSQL strings in the startup packet cannot hold a null byte. A pool whose password, user, database, application name or `connection_parameters` hold a null byte does not start: `dream_pgo:start_pool/2` returns `{error, {null_byte, password}}` or `{error, {null_byte, {parameter, Name}}}`. A password given as a function is known only at connect time: each connection attempt calls the function and checks the value it returns before it sends anything. A null byte in that value stops the connection attempt with `{error, {null_byte, password}}`. The error never holds the value.
-* `gleam.toml`. With this file, a Gleam project can use a local copy of `dream_pgo` as a path dependency. rebar3 does not read it. The Gleam build tool compiles the `test/` directory of a path dependency, so the Common Test suites are in `ct/` (`{ct_opts, [{dir, "ct"}]}` in `rebar.config`). `rebar3 ct` runs them as before. The test certificates stay in `test/certs`.
+* The null byte check. PostgreSQL strings in the startup packet cannot hold a null byte. A pool whose password, user, database, application name or `connection_parameters` hold a null byte does not start: `dream_postgres_driver:start_pool/2` returns `{error, {null_byte, password}}` or `{error, {null_byte, {parameter, Name}}}`. A password given as a function is known only at connect time: each connection attempt calls the function and checks the value it returns before it sends anything. A null byte in that value stops the connection attempt with `{error, {null_byte, password}}`. The error never holds the value.
+* `gleam.toml`. With this file, a Gleam project can use a local copy of `dream_postgres_driver` as a path dependency. rebar3 does not read it. The Gleam build tool compiles the `test/` directory of a path dependency, so the Common Test suites are in `ct/` (`{ct_opts, [{dir, "ct"}]}` in `rebar.config`). `rebar3 ct` runs them as before. The test certificates stay in `test/certs`.
 
-* Type modules. pg_types 0.6.0 cannot read some built-in PostgreSQL types. dream_pgo carries a reader for each in a `dream_pgo_type_*` module, until a pg_types release has it. Each module names the pg_types change that it mirrors. At start, `dream_pgo_app` puts these modules first in the pg_types `modules` setting. Modules that you set stay after them, so your module replaces a dream_pgo module for the same type. The carried types:
+* Type modules. pg_types 0.6.0 cannot read some built-in PostgreSQL types. dream_postgres_driver carries a reader for each in a `dream_postgres_driver_type_*` module, until a pg_types release has it. Each module names the pg_types change that it mirrors. At start, `dream_postgres_driver_app` puts these modules first in the pg_types `modules` setting. Modules that you set stay after them, so your module replaces a dream_postgres_driver module for the same type. The carried types:
   * `oid`, the `reg*` types, `xid` and `cid` decode to an integer.
   * `timetz` is `{{Hours, Minutes, Seconds}, OffsetSecondsEastOfUTC}`.
   * `money` is an integer in the smallest unit of the currency.
@@ -24,11 +24,11 @@ What is different from pgo:
   * `tsquery` is the query tree: `{Lexeme, Weights, Prefix}`, `{'not', Q}`, `{'and', Q, Q}`, `{'or', Q, Q}`, `{phrase, Distance, Q, Q}` or `empty`.
   * `anyarray` (such as `pg_stats.most_common_vals`) is a list. The element type comes from the element oid in the array. It is read only, because PostgreSQL does not accept a parameter of type `anyarray`.
 
-  dream_pgo also replaces four pg_types readers that crash or give wrong values:
-  * `dream_pgo_type_range` reads a range over a type of variable length, such as `numrange` (pg_types issue #21).
-  * `dream_pgo_type_time` reads `24:00:00` as `{24, 0, 0}`, for `time` and `timetz`.
-  * `dream_pgo_type_interval` reads negative intervals and intervals of 24 hours or more. The hours can be 24 or more, and the parts have the sign of the interval (pg_types pull request #25).
-  * `dream_pgo_type_date` reads and writes `infinity` and `'-infinity'`.
+  dream_postgres_driver also replaces four pg_types readers that crash or give wrong values:
+  * `dream_postgres_driver_type_range` reads a range over a type of variable length, such as `numrange` (pg_types issue #21).
+  * `dream_postgres_driver_type_time` reads `24:00:00` as `{24, 0, 0}`, for `time` and `timetz`.
+  * `dream_postgres_driver_type_interval` reads negative intervals and intervals of 24 hours or more. The hours can be 24 or more, and the parts have the sign of the interval (pg_types pull request #25).
+  * `dream_postgres_driver_type_date` reads and writes `infinity` and `'-infinity'`.
 
 The rest of this README is the pgo README, with the module names changed.
 
@@ -54,43 +54,43 @@ Erlang/OTP 26 and above.
 
 ## Use
 
-Pools defined in the `dream_pgo` application's environment will be started on boot. You can also add pools dynamically with `dream_pgo:start_pool/3`.
+Pools defined in the `dream_postgres_driver` application's environment will be started on boot. You can also add pools dynamically with `dream_postgres_driver:start_pool/3`.
 
-To try `dream_pgo` simply modify `config/example.config` by replacing the `host`, `database`, `user` and `password` values for the database you wish to connect to:
+To try `dream_postgres_driver` simply modify `config/example.config` by replacing the `host`, `database`, `user` and `password` values for the database you wish to connect to:
 
 ```erlang
 [
-  {dream_pgo, [{pools, [{dream_pgo_default, #{pool_size => 10,
+  {dream_postgres_driver, [{pools, [{dream_postgres_driver_default, #{pool_size => 10,
                                   host => "127.0.0.1",
                                   database => "test",
                                   user => "test"}}]}]}
 ].
 ```
 
-`dream_pgo_default` is the name of the pool, `size` is the number of connections to create for the pool. Or you can start the pool through `dream_pgo:start_pool/2` which creates it as a child of `dream_pgo`'s simple one for one:
+`dream_postgres_driver_default` is the name of the pool, `size` is the number of connections to create for the pool. Or you can start the pool through `dream_postgres_driver:start_pool/2` which creates it as a child of `dream_postgres_driver`'s simple one for one:
 
 ``` erlang
-> application:ensure_all_started(dream_pgo).
-{ok,[backoff,opentelemetry_api,pg_types,dream_pgo]}
-> dream_pgo:start_pool(dream_pgo_default, #{pool_size => 5, host => "127.0.0.1", database => "test", user => "test"}). 
+> application:ensure_all_started(dream_postgres_driver).
+{ok,[backoff,opentelemetry_api,pg_types,dream_postgres_driver]}
+> dream_postgres_driver:start_pool(dream_postgres_driver_default, #{pool_size => 5, host => "127.0.0.1", database => "test", user => "test"}). 
 ```
 
 Or start a pool as a child of your application's supervisor:
 
 ``` erlang
-ChildSpec = #{id => dream_pgo_pool,
-              start => {dream_pgo_pool, start_link, [Name, PoolConfig]},
+ChildSpec = #{id => dream_postgres_driver_pool,
+              start => {dream_postgres_driver_pool, start_link, [Name, PoolConfig]},
               shutdown => 1000},
 ```
 
 Then start a shell with `rebar3 shell`, it will boot the applications which will start the pool automatically if it is configured through `sys.config`.
 
 ```erlang
-> dream_pgo:query("select 1").
+> dream_postgres_driver:query("select 1").
 #{command => select, num_rows => 1, rows => [{1}]}
-> dream_pgo:transaction(fun() ->
->     dream_pgo:query("INSERT INTO my_table(name) VALUES('Name 1')"),
->     dream_pgo:query("INSERT INTO my_table(name) VALUES('Name 2')")
+> dream_postgres_driver:transaction(fun() ->
+>     dream_postgres_driver:query("INSERT INTO my_table(name) VALUES('Name 1')"),
+>     dream_postgres_driver:query("INSERT INTO my_table(name) VALUES('Name 2')")
 > end).
 #{command => insert,num_rows => 1,rows => []}
 ```
@@ -124,7 +124,7 @@ Pool configuration includes the Postgres connection information, pool configurat
   extra => term()}
 ```
 
-The query time options can also be set through options passed to `dream_pgo:query/3`:
+The query time options can also be set through options passed to `dream_postgres_driver:query/3`:
 
 ``` erlang
 decode_fun() :: fun((row(), fields()) -> row()) | undefined.
@@ -141,12 +141,12 @@ decode_option() :: return_rows_as_maps | {return_rows_as_maps, boolean()} |
 
 ### Query Options
 
-* `pool` (default: `dream_pgo_default`): Name of the pool to use for checking out a connection to the database.
+* `pool` (default: `dream_postgres_driver_default`): Name of the pool to use for checking out a connection to the database.
 * `return_rows_as_maps` (default: `false`): When `true` each row is returned as a map of column name to value instead of a list of values.
 * `column_name_as_atom` (default: `false`): If `true` converts each column name in the result to an atom.
 * `decode_fun` (default: `undefined`): Optional function for performing transformations on each row in a result. It must be a 2-arity function returning a list or map for the row and takes the row (as a list or map) and a list of `#row_description_field{}` records.
 * `queue` (default: `true`): Whether to wait for a connection from the pool if none are available.
-* `trace` (default: `false`): `dream_pgo` is instrumented with [OpenTelemetry](https://opencensus.io/) and when this option is `true` a span will be created (if sampled).
+* `trace` (default: `false`): `dream_postgres_driver` is instrumented with [OpenTelemetry](https://opencensus.io/) and when this option is `true` a span will be created (if sampled).
 
 ### Database Settings
 
@@ -165,7 +165,7 @@ decode_option() :: return_rows_as_maps | {return_rows_as_maps, boolean()} |
 * `pool_size` (default: 1): Number of connections to keep open with the database
 * `queue_target` (default: 50) and `queue_interval` (default: 1000): Checking out connections is handled through a queue. If it takes longer than `queue_target` to get out of the queue for longer than `queue_interval` then the `queue_target` will be doubled and checkouts will start to be dropped if that target is surpassed.
 * `idle_interval` (default: 1000): The database is pinged every `idle_interval` when the connection is idle.
-* `extra` (default: `undefined`): Any value. `dream_pgo` does not use it. Each connection of the pool keeps it, and `dream_pgo:conn_extra/1` returns it for a checked-out connection. A second `start_pool` with the same name fails and does not change it.
+* `extra` (default: `undefined`): Any value. `dream_postgres_driver` does not use it. Each connection of the pool keeps it, and `dream_postgres_driver:conn_extra/1` returns it for a checked-out connection. A second `start_pool` with the same name fails and does not change it.
 
 ### Erlang TCP Socket Settings
 
@@ -176,7 +176,7 @@ decode_option() :: return_rows_as_maps | {return_rows_as_maps, boolean()} |
 [OpenTelemetry](https://opentelemetry.io/) spans can be enabled for queries and transactions by either setting the `trace` to `true` for the pool:
 
 ``` erlang
-> dream_pgo:start_pool(dream_pgo_default, #{host => "127.0.0.1", 
+> dream_postgres_driver:start_pool(dream_postgres_driver_default, #{host => "127.0.0.1", 
                             database => "test", 
                             user => "test",
                             pool_size => 5,
@@ -186,25 +186,25 @@ decode_option() :: return_rows_as_maps | {return_rows_as_maps, boolean()} |
 Or by passing `#{trace => true}` in the options for a query or transaction:
 
 ```erlang
-> dream_pgo:query("select 1", [], #{trace => true}).
+> dream_postgres_driver:query("select 1", [], #{trace => true}).
 #{command => select, num_rows => 1, rows => [{1}]}
-> dream_pgo:transaction(fun() ->
->     dream_pgo:query("INSERT INTO my_table(name) VALUES('Name 1')"),
->     dream_pgo:query("INSERT INTO my_table(name) VALUES('Name 2')")
+> dream_postgres_driver:transaction(fun() ->
+>     dream_postgres_driver:query("INSERT INTO my_table(name) VALUES('Name 1')"),
+>     dream_postgres_driver:query("INSERT INTO my_table(name) VALUES('Name 2')")
 > end, #{trace => true}).
 #{command => insert,num_rows => 1,rows => []}
 ```
 
 Note that since this is optional the `opentelemetry` application is not included
-as a dependency of `dream_pgo` -- only `opentelemetry_api` is included by default. So
+as a dependency of `dream_postgres_driver` -- only `opentelemetry_api` is included by default. So
 it must be included as a `rebar3` dependency and runtime dependency (listed in
 your application's `.app.src` `applications` or the list of applications for
 `relx` to include in a release).
 
 ### Listen/Notify
 
-Use `dream_pgo_notifications:start_link` to create a process holding a connection to
-the database that you can call `dream_pgo_notifications:listen/2` with to listen on a
+Use `dream_postgres_driver_notifications:start_link` to create a process holding a connection to
+the database that you can call `dream_postgres_driver_notifications:listen/2` with to listen on a
 channel for notifications. Those notifications will arrive at the calling
 process in the form:
 

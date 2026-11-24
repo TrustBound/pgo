@@ -1,0 +1,284 @@
+-module(dream_postgres_driver_SUITE).
+
+-compile(export_all).
+
+-include_lib("common_test/include/ct.hrl").
+-include_lib("eunit/include/eunit.hrl").
+
+-include("dream_postgres_driver_internal.hrl").
+
+-define(DATABASE, "test").
+-define(USER, "test").
+-define(PASSWORD, "password").
+
+-define(UNTIL(X), (fun Until(I) when I =:= 20 -> erlang:error(fail);
+                       Until(I) -> case X of true -> ok; false -> timer:sleep(10), Until(I+1) end end)(0)).
+
+all() -> [checkout_checkin, checkout_break, recheckout, kill_socket, kill_pid,
+          checkout_kill, checkout_disconnect, checkout_query_crash,
+          password_as_function, query_timeout, password_not_in_status].
+
+init_per_suite(Config) ->
+    Config.
+
+end_per_suite(_Config) ->
+    ok.
+
+init_per_testcase(password_as_function, Config) ->
+    Pool = pool_password_as_function,
+    application:ensure_all_started(dream_postgres_driver),
+    dream_postgres_driver_sup:start_child(Pool, #{pool_size => 1,
+                                database => ?DATABASE,
+                                user => ?USER,
+                                password => fun() -> ?PASSWORD end}),
+    Tid = dream_postgres_driver_pool:tid(Pool),
+    ?UNTIL((catch ets:info(Tid, size)) =:= 1),
+    [{pool_name, Pool} | Config];
+init_per_testcase(T, Config) when T =:= checkout_break ;
+                                  T =:= checkout_query_crash ;
+                                  T =:= recheckout ;
+                                  T =:= kill_socket ;
+                                  T =:= kill_pid ;
+                                  T =:= query_timeout ->
+    Pool = list_to_atom("pool_" ++ atom_to_list(T)),
+    application:ensure_all_started(dream_postgres_driver),
+    dream_postgres_driver_sup:start_child(Pool, #{pool_size => 1,
+                                database => ?DATABASE,
+                                user => ?USER,
+                                password => ?PASSWORD}),
+
+    Tid = dream_postgres_driver_pool:tid(Pool),
+    ?UNTIL((catch ets:info(Tid, size)) =:= 1),
+
+    [{pool_name, Pool} | Config];
+init_per_testcase(T, Config) ->
+    Pool = list_to_atom("pool_" ++ atom_to_list(T)),
+    application:ensure_all_started(dream_postgres_driver),
+    dream_postgres_driver_sup:start_child(Pool, #{pool_size => 10,
+                                database => ?DATABASE,
+                                user => ?USER,
+                                password => ?PASSWORD}),
+    Tid = dream_postgres_driver_pool:tid(Pool),
+    ?UNTIL((catch ets:info(Tid, size)) =:= 10),
+
+    [{pool_name, Pool} | Config].
+
+end_per_testcase(_, _Config) ->
+    application:stop(dream_postgres_driver),
+    ok.
+
+checkout_checkin(Config) ->
+    Name = ?config(pool_name, Config),
+    Tid = dream_postgres_driver_pool:tid(Name),
+
+    {ok, Ref, Conn=#conn{}} = dream_postgres_driver:checkout(Name),
+    {ok, Ref1, Conn1=#conn{}} = dream_postgres_driver:checkout(Name),
+
+    ?UNTIL((catch ets:info(Tid, size)) =:= 8),
+
+    dream_postgres_driver:checkin(Ref, Conn),
+    dream_postgres_driver:checkin(Ref1, Conn1),
+
+    ?UNTIL((catch ets:info(Tid, size)) =:= 10),
+
+    ok.
+
+checkout_break(Config) ->
+    Name = ?config(pool_name, Config),
+    Tid = dream_postgres_driver_pool:tid(Name),
+
+    {ok, Ref, Conn=#conn{owner=Pid, socket=Socket}} = dream_postgres_driver:checkout(Name),
+    dream_postgres_driver_connection:break(Conn, Ref),
+
+    ?UNTIL((catch ets:info(Tid, size)) =:= 1),
+
+    %% verify that the connection we broke is not still in the pool
+    %% but the Pid for the dream_postgres_driver_connection proc should be the same
+    {ok, _Ref1, #conn{owner=Pid1, socket=Socket1}} = dream_postgres_driver:checkout(Name),
+    ?assertNotEqual(Socket, Socket1),
+    ?assertEqual(Pid, Pid1),
+
+    ok.
+
+recheckout(Config) ->
+    Name = ?config(pool_name, Config),
+    Tid = dream_postgres_driver_pool:tid(Name),
+
+    {ok, _, Conn=#conn{socket=Socket}} = dream_postgres_driver:checkout(Name),
+
+    ?UNTIL((catch ets:info(Tid, size)) =:= 0),
+
+    dream_postgres_driver:with_conn(Conn, fun() ->
+                                ?assertMatch(#{rows := [{1}]}, dream_postgres_driver:query("select 1", []))
+                        end),
+
+    erlang:exit(Socket, kill),
+    dream_postgres_driver:with_conn(Conn, fun() ->
+                                ?assertEqual({error, closed}, dream_postgres_driver:query("select 1", []))
+                        end),
+
+    %% wait for a new connection to be back in the pool
+    ?UNTIL((catch ets:info(Tid, size)) =:= 1),
+    ?assertMatch(#{rows := [{1}]}, dream_postgres_driver:query("select 1", [], #{pool => Name})),
+    {ok, _Ref1={_, _, _, _Holder1}, Conn1} = dream_postgres_driver:checkout(Name),
+    dream_postgres_driver:with_conn(Conn1, fun() ->
+                                ?assertMatch(#{rows := [{1}]}, dream_postgres_driver:query("select 1", []))
+                        end),
+
+    ok.
+
+kill_socket(Config) ->
+    Name = ?config(pool_name, Config),
+    Tid = dream_postgres_driver_pool:tid(Name),
+
+    {ok, Ref, Conn=#conn{socket=Socket}} = dream_postgres_driver:checkout(Name),
+
+    ?UNTIL((catch ets:info(Tid, size)) =:= 0),
+
+    dream_postgres_driver:with_conn(Conn, fun() ->
+                                ?assertMatch(#{rows := [{1}]}, dream_postgres_driver:query("select 1", []))
+                        end),
+
+    %% check the conn back in before killing to test what happens if not checked out
+    dream_postgres_driver:checkin(Ref, Conn),
+
+    %% socket is killed, a new socket is created and checked in to the pool
+    erlang:exit(Socket, kill),
+
+    %% pool should go up to 2 until the next ping that catches the socket is dead
+    ?UNTIL((catch ets:info(Tid, size)) =:= 2),
+
+    ok.
+
+kill_pid(Config) ->
+    Name = ?config(pool_name, Config),
+    Tid = dream_postgres_driver_pool:tid(Name),
+
+    {ok, Ref, Conn=#conn{owner=Pid}} = dream_postgres_driver:checkout(Name),
+
+    ?UNTIL((catch ets:info(Tid, size)) =:= 0),
+
+    dream_postgres_driver:with_conn(Conn, fun() ->
+                                ?assertMatch(#{rows := [{1}]}, dream_postgres_driver:query("select 1", []))
+                        end),
+
+    %% check the conn back in before killing to test what happens if not checked out
+    dream_postgres_driver:checkin(Ref, Conn),
+
+    %% socket is killed, a new socket is created and checked in to the pool
+    erlang:exit(Pid, kill),
+
+    %% pool should go up to 2 until the old holder is removed
+    ?UNTIL((catch ets:info(Tid, size)) =:= 2),
+
+    ok.
+
+checkout_kill(Config) ->
+    Name = ?config(pool_name, Config),
+    Tid = dream_postgres_driver_pool:tid(Name),
+
+    {ok, _Ref={_, _, _, Holder}, Conn=#conn{socket=Socket}} = dream_postgres_driver:checkout(Name),
+    {ok, {_, _, _, _}, Conn1=#conn{owner=Pid1}} = dream_postgres_driver:checkout(Name),
+
+    ?UNTIL((catch ets:info(Tid, size)) =:= 8),
+
+    dream_postgres_driver:with_conn(Conn, fun() ->
+                                ?assertMatch(#{rows := [{1}]}, dream_postgres_driver:query("select 1", []))
+                        end),
+
+    ?assertMatch([_], ets:tab2list(Holder)),
+
+    %% socket is killed, a new socket is created and checked in to the pool
+    erlang:exit(Socket, kill),
+    dream_postgres_driver:with_conn(Conn, fun() ->
+                                ?assertEqual({error, closed}, dream_postgres_driver:query("select 1", []))
+                        end),
+    ?assertMatch([_], ets:tab2list(Holder)),
+
+    %% pool goes back to 9
+    ?UNTIL((catch ets:info(Tid, size)) =:= 9),
+
+    %% old conn is still closed
+    dream_postgres_driver:with_conn(Conn, fun() ->
+                                ?assertEqual({error, closed}, dream_postgres_driver:query("select 1", []))
+                        end),
+
+    %% second checked out conn works
+    dream_postgres_driver:with_conn(Conn1, fun() ->
+                                 ?assertMatch(#{rows := [{1}]}, dream_postgres_driver:query("select 1", []))
+                         end),
+
+    %% process owning the socket is killed and pool size will then go to 10
+    erlang:exit(Pid1, kill),
+
+    %% process was killed, connection now fails
+    dream_postgres_driver:with_conn(Conn1, fun() ->
+                                 ?assertMatch({error, _}, dream_postgres_driver:query("select 1", []))
+                         end),
+
+    ?UNTIL((catch ets:info(Tid, size)) =:= 10),
+
+    ok.
+
+checkout_disconnect(Config) ->
+    Name = ?config(pool_name, Config),
+    Tid = dream_postgres_driver_pool:tid(Name),
+
+    {ok, Ref, Conn} = dream_postgres_driver:checkout(Name),
+    {ok, _Ref1, #conn{owner=Pid1}} = dream_postgres_driver:checkout(Name),
+
+    dream_postgres_driver_pool:disconnect(Ref, some_error, Conn, []),
+    ?UNTIL((catch ets:info(Tid, size)) =:= 9),
+
+    erlang:exit(Pid1, kill),
+    ?UNTIL((catch ets:info(Tid, size)) =:= 10),
+
+    ok.
+
+password_as_function(Config) ->
+    Name = ?config(pool_name, Config),
+    ?assertMatch(#{rows := [{1}]}, dream_postgres_driver:query("select 1", [], #{pool => Name})),
+    ok.
+
+%% regression test. this would fail with `unexpected message` response to the create query
+checkout_query_crash(Config) ->
+    Name = ?config(pool_name, Config),
+    Tid = dream_postgres_driver_pool:tid(Name),
+
+    {ok, _Ref, Conn} = dream_postgres_driver:checkout(Name),
+    dream_postgres_driver:with_conn(Conn, fun() ->
+                          dream_postgres_driver:query("select $1::uuid", [<<1,2,3,4,5>>])
+                        end),
+    dream_postgres_driver:checkin(_Ref, Conn),
+
+    ?UNTIL((catch ets:info(Tid, size)) =:= 1),
+    {ok, _Ref1, Conn1} = dream_postgres_driver:checkout(Name),
+    dream_postgres_driver:with_conn(Conn1, fun() ->
+                           ?assertMatch(#{command := create},
+                                        dream_postgres_driver:query("create temporary table foo (_id integer)", []))
+                         end),
+
+    ok.
+
+query_timeout(Config) ->
+    Name = ?config(pool_name, Config),
+    %% Use a very short deadline so the query times out
+    Result = dream_postgres_driver:query("SELECT pg_sleep(5)", [],
+                       #{pool => Name,
+                         pool_options => [{timeout, 500}]}),
+    ?assertEqual({error, query_timeout}, Result),
+    ok.
+
+%% No process of the application shows the password in its status: not
+%% the connections and not the supervisors, which keep the pool
+%% configuration in their child specs and print it in their reports.
+password_not_in_status(_Config) ->
+    Statuses = [{Pid, Status} || Pid <- erlang:processes(),
+                                 application:get_application(Pid) =:= {ok, dream_postgres_driver},
+                                 %% the application master does not answer sys calls
+                                 {ok, Status} <- [catch {ok, sys:get_status(Pid, 1000)}]],
+    ?assert(length(Statuses) > 10),
+    ?assertEqual([], [proc_lib:translate_initial_call(Pid)
+                      || {Pid, Status} <- Statuses,
+                         string:find(io_lib:format("~p", [Status]),
+                                     "\"" ++ ?PASSWORD ++ "\"") =/= nomatch]).

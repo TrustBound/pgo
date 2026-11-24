@@ -54,7 +54,7 @@ jobs:
     - uses: codecov/codecov-action@v2
       if: ${{ always() }}
       with:
-        file: _build/test/covertool/dream_pgo.covertool.xml
+        file: _build/test/covertool/dream_postgres_driver.covertool.xml
         env_vars: OTP_VERSION
   dialyzer:
     name: Dialyze on OTP ${{ matrix.otp_version }} and ${{ matrix.os }}

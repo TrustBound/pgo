@@ -1,0 +1,20 @@
+{application, dream_postgres_driver,
+ [{description, "Postgres client with connection pool, a fork of pgo"},
+  {vsn, "git"},
+  {registered, []},
+  {mod, {dream_postgres_driver_app, []}},
+  {applications,
+   [kernel,
+    stdlib,
+    backoff,
+    opentelemetry_api,
+    pg_types
+   ]},
+  {env,[]},
+  {modules, []},
+
+  {licenses, ["Apache-2.0"]},
+  {links, [{"Source", "https://github.com/TrustBound/pgo/tree/dream-postgres-driver"},
+           {"Upstream pgo", "https://github.com/erleans/pgo"}]},
+  {files, ["src", "rebar.config", "rebar.lock", "README.md", "LICENSE", "CHANGELOG.md"]}
+ ]}.

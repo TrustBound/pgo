@@ -1,0 +1,173 @@
+-module(dream_postgres_driver_type_server).
+
+-export([start_link/2,
+         clear/1,
+         reload/1,
+         reload_cast/1]).
+
+-export([init/1,
+         callback_mode/0,
+         ready/3,
+         terminate/3]).
+
+-include("dream_postgres_driver_internal.hrl").
+-include_lib("pg_types/include/pg_types.hrl").
+-include_lib("kernel/include/logger.hrl").
+
+-record(data, {pool        :: atom(),
+               pool_config  :: dream_postgres_driver:pool_config(),
+               last_reload :: integer() | undefined}).
+
+start_link(Pool, PoolConfig) ->
+    gen_statem:start_link(?MODULE, [Pool, PoolConfig], []).
+
+%% Removes the types of Pool from the pg_types table. pg_types keeps the
+%% table for the life of its own application, so the types that an earlier
+%% pool of the same name loaded stay in it after that pool stops. A query
+%% finds a type in the table and does not wait for the load of the new
+%% pool, so it could decode with a module or an oid of the old pool. With
+%% no types in the table, a query asks the type server to load them and
+%% waits for the load. pg_types has no function to remove types.
+-spec clear(atom()) -> ok.
+clear(Pool) ->
+    true = ets:match_delete(?PG_TYPES_TABLE, {{Pool, '_'}, '_'}),
+    ok.
+
+reload(Pid) ->
+    gen_statem:call(Pid, {reload, erlang:monotonic_time()}).
+
+reload_cast(Pid) ->
+    gen_statem:cast(Pid, {reload, erlang:monotonic_time()}).
+
+init([Pool, PoolConfig]) ->
+    {ok, ready, #data{pool=Pool, pool_config=PoolConfig},
+     {next_event, internal, load}}.
+
+callback_mode() ->
+    state_functions.
+
+ready(internal, load, Data=#data{pool=Pool,
+                                 pool_config=PoolConfig}) ->
+    case load(Pool, -1, 0, PoolConfig) of
+        failed ->
+            %% not using a timer because this initial load, so want to block
+            timer:sleep(500),
+            {keep_state_and_data, [{next_event, internal, load}]};
+        _ ->
+            {keep_state, Data#data{last_reload=erlang:monotonic_time()}}
+    end;
+ready({call, From}, {reload, RequestTime}, Data=#data{pool=Pool,
+                                                      pool_config=PoolConfig,
+                                                      last_reload=LastReload}) ->
+    load(Pool, LastReload, RequestTime, PoolConfig),
+    {keep_state, Data#data{last_reload=erlang:monotonic_time()}, [{reply, From, ok}]};
+ready(cast, {reload, RequestTime}, Data=#data{pool=Pool,
+                                              pool_config=PoolConfig,
+                                              last_reload=LastReload}) ->
+    load(Pool, LastReload, RequestTime, PoolConfig),
+    {keep_state, Data#data{last_reload=erlang:monotonic_time()}};
+ready(_, _, _Data) ->
+    keep_state_and_data.
+
+terminate(_, _, _Data) ->
+    %% TODO: add trap_exit and tell pg_types to erase all pool data?
+    ok.
+
+load(Pool, LastReload, RequestTime, PoolConfig) when LastReload < RequestTime ->
+    try dream_postgres_driver_handler:open(Pool, PoolConfig) of
+        {ok, Conn=#conn{parameters=Parameters}} ->
+            case load_and_update_types(Conn, Pool) of
+                failed ->
+                    failed;
+                TypeInfos ->
+                    _ = pg_types:update(Pool, TypeInfos, Parameters),
+                    TypeInfos
+            end;
+        {error, _} ->
+            failed
+    catch
+        _:_ ->
+            failed
+    end;
+load(_, _, _, _) ->
+    ok.
+
+%% TODO: only return oids not already selected in previous runs
+%% The base_oid of a range or of a multirange is the oid of the subtype of
+%% its ranges. pg_range.rngmultitypid is new in PostgreSQL 14, so the
+%% multirange join is only in the query for a server of version 14 or later.
+-define(BOOTSTRAP_QUERY(MultirangeJoin),
+        ["SELECT t.oid, t.typname, t.typsend, t.typreceive, t.typlen, "
+         "t.typoutput, t.typinput, t.typelem, coalesce(r.rngsubtype, 0), ARRAY ("
+         "SELECT a.atttypid FROM pg_attribute AS a "
+         "WHERE a.attrelid = t.typrelid AND a.attnum > 0 AND NOT a.attisdropped "
+         "ORDER BY a.attnum) "
+         "FROM pg_type AS t LEFT JOIN pg_range AS r ON r.rngtypid = t.oid "
+         "OR (t.typbasetype <> 0 AND r.rngtypid = t.typbasetype) ",
+         MultirangeJoin,
+         "ORDER BY t.oid"]).
+
+-define(MULTIRANGE_JOIN, "OR r.rngmultitypid = t.oid "
+                         "OR (t.typbasetype <> 0 AND r.rngmultitypid = t.typbasetype) ").
+
+bootstrap_query(#conn{parameters=Parameters}) ->
+    case server_major_version(maps:get(<<"server_version">>, Parameters, <<>>)) of
+        Major when is_integer(Major), Major >= 14 ->
+            ?BOOTSTRAP_QUERY(?MULTIRANGE_JOIN);
+        _ ->
+            ?BOOTSTRAP_QUERY("")
+    end.
+
+%% server_version is like <<"17.2 (Debian 17.2-1.pgdg120+1)">> or <<"9.6.24">>
+server_major_version(Version) ->
+    case string:to_integer(Version) of
+        {Major, _} when is_integer(Major) ->
+            Major;
+        _ ->
+            unknown
+    end.
+
+load_and_update_types(Conn, Pool) ->
+    try
+        case dream_postgres_driver_handler:simple_query(Conn, bootstrap_query(Conn)) of
+            {ok, Oids} ->
+                [#type_info{oid=binary_to_integer(Oid),
+                            pool=Pool,
+                            name=binary:copy(Name),
+                            typsend=binary:copy(Send),
+                            typreceive=binary:copy(Receive),
+                            typlen=binary_to_integer(Len),
+                            output=binary:copy(Output),
+                            input=binary:copy(Input),
+                            elem_oid=binary_to_integer(ArrayOid),
+                            base_oid=binary_to_integer(BaseOid),
+                            comp_oids=parse_array_oids(CompOids)}
+                 || [Oid, Name, Send, Receive, Len, Output, Input, ArrayOid, BaseOid, CompOids] <- Oids];
+            {error, {dream_postgres_driver_error, PgoError}} ->
+                ?LOG_WARNING("Unable to load type information. query failed with error: ~p", [PgoError]),
+                failed
+        end
+    catch
+        Class:Reason:Stacktrace ->
+            ?LOG_WARNING("Unable to load type information. dream_postgres_driver will not function properly: ~s", [erl_error:format_exception(Class, Reason, Stacktrace)]),
+            failed
+    after
+        dream_postgres_driver_handler:close(Conn)
+    end.
+
+parse_array_oids(null) ->
+    [];
+parse_array_oids(<<>>) ->
+    [];
+parse_array_oids(<<"{}">>) ->
+    [];
+parse_array_oids(<<"{", Rest/binary>>) ->
+    parse_array_oids(Rest, []).
+
+parse_array_oids(Bin, Acc) ->
+    case string:to_integer(Bin) of
+        {Int, <<",", Rest/binary>>} ->
+            parse_array_oids(Rest, [Int | Acc]);
+        {Int, <<"}">>} ->
+            lists:reverse([Int | Acc])
+    end.
