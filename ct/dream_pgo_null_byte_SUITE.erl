@@ -7,11 +7,15 @@
 
 %% A string in the PostgreSQL startup packet ends at a null byte, so a
 %% null byte in the password or in a startup parameter cannot go to the
-%% server. The pool refuses such a configuration when it starts.
+%% server. The pool refuses such a configuration when it starts. A
+%% password given as a function is known only at connect time, so each
+%% connection attempt checks the value that the function returns.
 
 all() -> [password, password_binary, user, database, parameter_name,
           parameter_value, application_name, startup_parameters_check,
-          linked_caller_survives, valid_configuration_starts].
+          linked_caller_survives, valid_configuration_starts,
+          password_function, password_function_binary,
+          password_function_connects].
 
 init_per_suite(Config) ->
     application:ensure_all_started(dream_pgo),
@@ -82,6 +86,30 @@ valid_configuration_starts(_Config) ->
     {ok, _} = dream_pgo_sup:start_child(valid_configuration_starts, pool_config(#{})),
     ?assertMatch(#{rows := [{1}]},
                  dream_pgo:query(<<"select 1">>, [], #{pool => valid_configuration_starts})).
+
+password_function(_Config) ->
+    refused_at_connect(fun() -> "pass\0word" end).
+
+password_function_binary(_Config) ->
+    refused_at_connect(fun() -> <<"pass", 0, "word">> end).
+
+password_function_connects(_Config) ->
+    {ok, Conn} = dream_pgo_handler:open(null_byte_password_function,
+                                        pool_config(#{password => fun() -> "password" end})),
+    ?assertEqual(ok, dream_pgo_handler:ping(Conn)),
+    dream_pgo_handler:close(Conn).
+
+%% The connection attempt fails before it sends anything, and it closes
+%% its socket.
+refused_at_connect(PasswordFun) ->
+    TcpPortsBefore = tcp_ports(),
+    ?assertEqual({error, {null_byte, password}},
+                 dream_pgo_handler:open(null_byte_password_function,
+                                        pool_config(#{password => PasswordFun}))),
+    ?assertEqual(TcpPortsBefore, tcp_ports()).
+
+tcp_ports() ->
+    [P || P <- erlang:ports(), erlang:port_info(P, name) =:= {name, "tcp_inet"}].
 
 %% The pool name gets a prefix: a name such as `user` is already taken
 %% by a process of the VM.

@@ -247,7 +247,9 @@ parameter_key(Name) ->
 %% A string in the startup packet or in a password message ends at a null
 %% byte, so PostgreSQL cannot receive a null byte in the password or in a
 %% startup parameter. The pool calls this check when it starts, and
-%% setup_startup/2 calls it before it sends anything. The error names the
+%% setup_startup/2 calls it before it sends anything. A password given as
+%% a function is known only at connect time: setup_startup/2 calls the
+%% function, then checks the value it returns. The error names the
 %% password or the parameter, but never holds a value.
 -spec check_startup_options(map()) -> ok | {error, {null_byte, password | {parameter, binary()}}}.
 check_startup_options(Options) ->
@@ -282,10 +284,14 @@ application_name(Options) ->
     end.
 
 setup_startup(Conn, Options) ->
-    case check_startup_options(Options) of
+    %% Call a password function one time for each connection attempt, so
+    %% that the value that is checked is the value that is sent.
+    ResolvedOptions = Options#{password => resolve_password(Options)},
+    case check_startup_options(ResolvedOptions) of
         ok ->
-            send_startup(Conn, Options);
+            send_startup(Conn, ResolvedOptions);
         {error, _} = CheckError ->
+            _ = close(Conn),
             CheckError
     end.
 
