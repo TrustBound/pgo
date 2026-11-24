@@ -9,7 +9,8 @@
          setopts/3,
          simple_query/2,
          close/1,
-         process_active_data/3]).
+         process_active_data/3,
+         check_startup_options/1]).
 
 -ifdef(TEST).
 -export([startup_parameters/1]).
@@ -243,6 +244,37 @@ parameter_key(Name) ->
                          || <<C>> <= Key >>}
     end.
 
+%% A string in the startup packet or in a password message ends at a null
+%% byte, so PostgreSQL cannot receive a null byte in the password or in a
+%% startup parameter. The pool calls this check when it starts, and
+%% setup_startup/2 calls it before it sends anything. A password given as
+%% a function is known only at connect time: setup_startup/2 calls the
+%% function, then checks the value it returns. The error names the
+%% password or the parameter, but never holds a value.
+-spec check_startup_options(map()) -> ok | {error, {null_byte, password | {parameter, binary()}}}.
+check_startup_options(Options) ->
+    case has_null_byte(maps:get(password, Options, ?DEFAULT_PASSWORD)) of
+        true ->
+            {error, {null_byte, password}};
+        false ->
+            case [Name || {Name, Value} <- startup_parameters(Options),
+                          has_null_byte(Name) orelse has_null_byte(Value)] of
+                [] ->
+                    ok;
+                [Name | _] ->
+                    {error, {null_byte, {parameter, iolist_to_binary(Name)}}}
+            end
+    end.
+
+has_null_byte(0) ->
+    true;
+has_null_byte(Binary) when is_binary(Binary) ->
+    binary:match(Binary, <<0>>) =/= nomatch;
+has_null_byte(List) when is_list(List) ->
+    lists:any(fun has_null_byte/1, List);
+has_null_byte(_) ->
+    false.
+
 application_name(Options) ->
     case maps:get(application_name, Options, node()) of
         Name when is_atom(Name) ->
@@ -251,9 +283,21 @@ application_name(Options) ->
             Name
     end.
 
-setup_startup(Conn=#conn{socket_module=SocketModule,
-                         socket=Socket,
-                         pool=Pool}, Options) ->
+setup_startup(Conn, Options) ->
+    %% Call a password function one time for each connection attempt, so
+    %% that the value that is checked is the value that is sent.
+    ResolvedOptions = Options#{password => resolve_password(Options)},
+    case check_startup_options(ResolvedOptions) of
+        ok ->
+            send_startup(Conn, ResolvedOptions);
+        {error, _} = CheckError ->
+            _ = close(Conn),
+            CheckError
+    end.
+
+send_startup(Conn=#conn{socket_module=SocketModule,
+                        socket=Socket,
+                        pool=Pool}, Options) ->
     %% Send startup packet connection packet.
     StartupMessage =
         pgo_protocol:encode_startup_message(startup_parameters(Options)),
