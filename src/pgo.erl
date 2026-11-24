@@ -66,6 +66,7 @@
                          user => string(),
                          password => string() | fun(() -> iodata()),
                          database => string(),
+                         application_name => atom() | iodata(),
 
                          %% pool specific settings
                          pool_size => integer(),
