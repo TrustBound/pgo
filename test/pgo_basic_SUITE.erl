@@ -22,7 +22,7 @@ cases() ->
     [transaction_returns_value, transaction_aborted_raises,
      exceptions, select, insert_update, text_types,
      rows_as_maps, json_jsonb, types,
-     int4_range, ts_range, tstz_range, numerics,
+     int4_range, multirange_base_oid, ts_range, tstz_range, numerics,
      hstore, records, circle, path, polygon, line,
      line_segment, tid, bit_string, arrays, tsvector,
      query_arity_4, set_parameter, netmask].
@@ -149,6 +149,22 @@ int4_range(_Config) ->
                            [empty])),
     ?assertMatch(#{rows := [{4, empty}]},
                  pgo:query("select * from foo_range where id=4")).
+
+%% The type bootstrap gives a multirange the subtype of its ranges as
+%% base_oid, as it does for a range.
+multirange_base_oid(_Config) ->
+    {ok, Conn} = pgo_handler:open(multirange_base_oid, #{port => 5432,
+                                                         database => "test",
+                                                         user => "test",
+                                                         password => "password"}),
+    {ok, Rows} = pgo_handler:simple_query(Conn, pgo_type_server:bootstrap_query(Conn)),
+    pgo_handler:close(Conn),
+    BaseOid = fun(Name) ->
+                      [Oid] = [B || [_, N, _, _, _, _, _, _, B, _] <- Rows, N =:= Name],
+                      Oid
+              end,
+    ?assertEqual(<<"23">>, BaseOid(<<"int4range">>)),
+    ?assertEqual(<<"23">>, BaseOid(<<"int4multirange">>)).
 
 ts_range(_Config) ->
     ?assertMatch(#{command := create},
