@@ -22,7 +22,8 @@ groups() ->
                   oid, reg_types, xid_cid,
                   timetz, timetz_array, money, macaddr8, box, xml, cstring,
                   jsonpath, pg_lsn, xid8, pg_snapshot, txid_snapshot, void,
-                  int2vector, oidvector, tsquery]},
+                  int2vector, oidvector, tsquery,
+                  multirange, nummultirange, multirange_base_oid]},
      {user_modules, [], [user_module_kept, restart_keeps_one_copy]}].
 
 init_per_suite(Config) ->
@@ -215,3 +216,27 @@ tsquery(_Config) ->
                <<"'fat' & ( 'rat' | !'cat' )">>),
     round_trip("tsquery", {phrase, 2, Lexeme(<<"a">>), {<<"b">>, ['A', 'C'], true}},
                <<"'a' <2> 'b':*AC">>).
+
+%% multiranges: the type bootstrap gives a multirange the subtype of its
+%% ranges as base_oid
+
+multirange_base_oid(_Config) ->
+    ?assertMatch(#type_info{module=dream_pgo_type_multirange, base_oid=23},
+                 pg_types:lookup_type_info(dream_pgo_default, oid_of("int4multirange"))),
+    ?assertMatch(#type_info{module=dream_pgo_type_range, base_oid=23},
+                 pg_types:lookup_type_info(dream_pgo_default, oid_of("int4range"))).
+
+multirange(_Config) ->
+    literal("select '{[1,3),[5,7)}'::int4multirange",
+            [{{1, 3}, {true, false}}, {{5, 7}, {true, false}}]),
+    literal("select '{}'::int4multirange", []),
+    literal("select '{[2024-01-01,2024-02-01)}'::datemultirange",
+            [{{{2024, 1, 1}, {2024, 2, 1}}, {true, false}}]),
+    round_trip("int4multirange", [{{1, 3}, {true, false}}, {{5, 7}, {true, false}}],
+               <<"{[1,3),[5,7)}">>),
+    round_trip("int4multirange", [], <<"{}">>).
+
+%% a multirange over a type of variable length, see dream_pgo_type_range
+nummultirange(_Config) ->
+    literal("select '{[1.5,2.5)}'::nummultirange", [{{1.5, 2.5}, {true, false}}]),
+    round_trip("nummultirange", [{{1.5, 2.5}, {true, false}}], <<"{[1.5,2.5)}">>).

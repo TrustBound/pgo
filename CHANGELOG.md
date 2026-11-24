@@ -30,6 +30,7 @@ First release of the `dream_pgo` fork, based on pgo 0.20.0.
 - `'24:00:00'::time` and a `timetz` at 24:00 decode to `{24, 0, 0}`. Before, they crashed. dream_pgo replaces `pg_time` with `dream_pgo_type_time`.
 - A negative interval, or an interval of 24 hours or more, no longer crashes. The form stays `{interval, {{Hours, Minutes, Seconds}, Days, Months}}`, but the hours can be 24 or more and the parts have the sign of the interval: `'-1 day -02:03:04.5'` is `{interval, {{-2, -3, -4.5}, -1, 0}}`, as in pg_types pull request #25. dream_pgo replaces `pg_interval` with `dream_pgo_type_interval`.
 - `'infinity'::date` and `'-infinity'::date` decode to the atoms `infinity` and `'-infinity'`, and these atoms encode back, as for timestamps. Before, they decoded to wrong dates. dream_pgo replaces `pg_date` with `dream_pgo_type_date`.
+- The type bootstrap query gives a multirange type the subtype of its ranges as `base_oid`, through `pg_range.rngmultitypid`. Before, the `base_oid` of a multirange was 0, and a multirange could not be read or written. The query has this join only for a server of PostgreSQL 14 or later, because older servers have no multiranges and no `rngmultitypid` column.
 - The test certificates in `test/certs` are a test CA (`ca.crt`) and a server certificate for `localhost` and `127.0.0.1` that the CA signed. The old self-signed server certificate ended on 29 November 2026.
 
 ## [0.20.0] - 2025-12-12

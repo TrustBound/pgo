@@ -80,18 +80,43 @@ load(_, _, _, _) ->
     ok.
 
 %% TODO: only return oids not already selected in previous runs
--define(BOOTSTRAP_QUERY, ["SELECT t.oid, t.typname, t.typsend, t.typreceive, t.typlen, "
-                          "t.typoutput, t.typinput, t.typelem, coalesce(r.rngsubtype, 0), ARRAY ("
-                          "SELECT a.atttypid FROM pg_attribute AS a "
-                          "WHERE a.attrelid = t.typrelid AND a.attnum > 0 AND NOT a.attisdropped "
-                          "ORDER BY a.attnum) "
-                          "FROM pg_type AS t LEFT JOIN pg_range AS r ON r.rngtypid = t.oid "
-                          "OR (t.typbasetype <> 0 AND r.rngtypid = t.typbasetype) "
-                          "ORDER BY t.oid"]).
+%% The base_oid of a range or of a multirange is the oid of the subtype of
+%% its ranges. pg_range.rngmultitypid is new in PostgreSQL 14, so the
+%% multirange join is only in the query for a server of version 14 or later.
+-define(BOOTSTRAP_QUERY(MultirangeJoin),
+        ["SELECT t.oid, t.typname, t.typsend, t.typreceive, t.typlen, "
+         "t.typoutput, t.typinput, t.typelem, coalesce(r.rngsubtype, 0), ARRAY ("
+         "SELECT a.atttypid FROM pg_attribute AS a "
+         "WHERE a.attrelid = t.typrelid AND a.attnum > 0 AND NOT a.attisdropped "
+         "ORDER BY a.attnum) "
+         "FROM pg_type AS t LEFT JOIN pg_range AS r ON r.rngtypid = t.oid "
+         "OR (t.typbasetype <> 0 AND r.rngtypid = t.typbasetype) ",
+         MultirangeJoin,
+         "ORDER BY t.oid"]).
+
+-define(MULTIRANGE_JOIN, "OR r.rngmultitypid = t.oid "
+                         "OR (t.typbasetype <> 0 AND r.rngmultitypid = t.typbasetype) ").
+
+bootstrap_query(#conn{parameters=Parameters}) ->
+    case server_major_version(maps:get(<<"server_version">>, Parameters, <<>>)) of
+        Major when is_integer(Major), Major >= 14 ->
+            ?BOOTSTRAP_QUERY(?MULTIRANGE_JOIN);
+        _ ->
+            ?BOOTSTRAP_QUERY("")
+    end.
+
+%% server_version is like <<"17.2 (Debian 17.2-1.pgdg120+1)">> or <<"9.6.24">>
+server_major_version(Version) ->
+    case string:to_integer(Version) of
+        {Major, _} when is_integer(Major) ->
+            Major;
+        _ ->
+            unknown
+    end.
 
 load_and_update_types(Conn, Pool) ->
     try
-        case dream_pgo_handler:simple_query(Conn, ?BOOTSTRAP_QUERY) of
+        case dream_pgo_handler:simple_query(Conn, bootstrap_query(Conn)) of
             {ok, Oids} ->
                 [#type_info{oid=binary_to_integer(Oid),
                             pool=Pool,
