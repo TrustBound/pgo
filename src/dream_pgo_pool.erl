@@ -134,6 +134,9 @@ normalize_pool_config(PoolConfig) when is_list(PoolConfig) ->
 normalize_pool_config(PoolConfig) ->
     maps:map(fun normalize_pool_config_value/2, PoolConfig).
 
+%% dream_pgo does not read `extra': it stays as the caller gave it.
+normalize_pool_config_value(extra, V) ->
+    V;
 normalize_pool_config_value(_, V) when is_binary(V) ->
     binary_to_list(V);
 normalize_pool_config_value(_, V) ->

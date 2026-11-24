@@ -118,7 +118,10 @@ Pool configuration includes the Postgres connection information, pool configurat
   %% defaults for options used at query time
   queue => boolean(),
   trace => boolean(),
-  decode_opts => [decode_option()]}
+  decode_opts => [decode_option()],
+
+  %% any value, kept with each connection
+  extra => term()}
 ```
 
 The query time options can also be set through options passed to `dream_pgo:query/3`:
@@ -162,6 +165,7 @@ decode_option() :: return_rows_as_maps | {return_rows_as_maps, boolean()} |
 * `pool_size` (default: 1): Number of connections to keep open with the database
 * `queue_target` (default: 50) and `queue_interval` (default: 1000): Checking out connections is handled through a queue. If it takes longer than `queue_target` to get out of the queue for longer than `queue_interval` then the `queue_target` will be doubled and checkouts will start to be dropped if that target is surpassed.
 * `idle_interval` (default: 1000): The database is pinged every `idle_interval` when the connection is idle.
+* `extra` (default: `undefined`): Any value. `dream_pgo` does not use it. Each connection of the pool keeps it, and `dream_pgo:conn_extra/1` returns it for a checked-out connection. A second `start_pool` with the same name fails and does not change it.
 
 ### Erlang TCP Socket Settings
 

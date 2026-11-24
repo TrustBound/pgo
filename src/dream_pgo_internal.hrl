@@ -7,7 +7,8 @@
                trace :: boolean(),
                trace_attributes :: [{unicode:unicode_binary(), unicode:unicode_binary() | integer()}],
                include_statement_span_attribute :: boolean(),
-               decode_opts :: []}).
+               decode_opts :: [],
+               extra :: term()}).
 
 % Backend messages
 -type oid() :: pos_integer().

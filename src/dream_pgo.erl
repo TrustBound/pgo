@@ -22,6 +22,7 @@
          checkout/2,
          checkin/2,
          break/1,
+         conn_extra/1,
          format_error/1]).
 
 -include("dream_pgo_internal.hrl").
@@ -80,7 +81,10 @@
                          %% defaults for options used at query time
                          queue => boolean(),
                          trace => boolean(),
-                         decode_opts => [decode_option()]} |
+                         decode_opts => [decode_option()],
+
+                         %% any value, kept with the pool and given back by conn_extra/1
+                         extra => term()} |
                        list({atom(), string() | integer() | boolean()}).
 
 %% @doc Starts connection pool as a child of dream_pgo_sup.
@@ -241,6 +245,12 @@ checkout(Pool, Options) ->
 -spec checkin(dream_pgo_pool:ref(), dream_pgo_pool:conn()) -> ok.
 checkin(Ref, Conn) ->
     dream_pgo_pool:checkin(Ref, Conn, []).
+
+%% @doc Returns the `extra' value of the pool that the connection is from,
+%% or `undefined' if the pool config has no `extra'.
+-spec conn_extra(dream_pgo_pool:conn()) -> term().
+conn_extra(#conn{extra=Extra}) ->
+    Extra.
 
 %% @doc Disconnects the socket held by this reference.
 -spec break(dream_pgo_pool:conn()) -> ok.

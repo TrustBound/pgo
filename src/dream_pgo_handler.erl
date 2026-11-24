@@ -116,6 +116,7 @@ open(Pool, PoolConfig) ->
     IncludeStatementDefault = maps:get(include_statement_span_attribute, PoolConfig, true),
     QueueDefault = maps:get(queue, PoolConfig, true),
     DefaultDecodeOpts = maps:get(decode_opts, PoolConfig, []),
+    Extra = maps:get(extra, PoolConfig, undefined),
     case gen_tcp:connect(ConnectHost, ConnectPort, SockOpts ++ [binary, {packet, raw}, {active, false}]) of
         {ok, Socket} ->
             Conn = #conn{pool=Pool,
@@ -136,7 +137,8 @@ open(Pool, PoolConfig) ->
                                            true -> ssl;
                                            _ ->    gen_tcp
                                        end,
-                         decode_opts=DefaultDecodeOpts},
+                         decode_opts=DefaultDecodeOpts,
+                         extra=Extra},
             case setup(Conn, PoolConfig) of
                 {error, _} = SetupError ->
                     %% The server refused SSL or the startup, or the
