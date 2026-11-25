@@ -1,5 +1,13 @@
 version: '3.7'
 
+# The test databases are thrown away, so each server keeps its data in
+# memory (tmpfs, 2 GB at most) and never on Docker's disk, and turns off the
+# settings that make data survive a crash (fsync, synchronous_commit,
+# full_page_writes). Never use these settings for data you want to keep.
+# The tmpfs is mounted on the data volume of the image:
+# /var/lib/postgresql/data up to PostgreSQL 17, /var/lib/postgresql from 18.
+# CI starts these servers from this file.
+
 services:
   postgres:
     image: postgres:17
@@ -10,6 +18,9 @@ services:
       - POSTGRES_HOST_AUTH_METHOD=scram-sha-256
     volumes:
     - /tmp/postgresql:/var/run/postgresql
+    tmpfs:
+      - /var/lib/postgresql/data:rw,size=2g
+    command: postgres -c fsync=off -c synchronous_commit=off -c full_page_writes=off
     ports:
       - 5432:5432
 
@@ -22,9 +33,11 @@ services:
       - PGDATA=/var/lib/postgresql/data/pgdata
     ports:
       - 5434:5432
+    tmpfs:
+      - /var/lib/postgresql/data:rw,size=2g
     volumes:
       - ./test/certs:/certs
     entrypoint: sh
     command: |
       -c "cp /certs/* /var/lib/postgresql/ && /bin/chown postgres /var/lib/postgresql/server.key && /bin/chmod 0600 /var/lib/postgresql/server.key &&
-      docker-entrypoint.sh postgres -c 'ssl=on' -c 'ssl_cert_file=/var/lib/postgresql/server.crt' -c 'ssl_key_file=/var/lib/postgresql/server.key'"
+      docker-entrypoint.sh postgres -c 'ssl=on' -c 'ssl_cert_file=/var/lib/postgresql/server.crt' -c 'ssl_key_file=/var/lib/postgresql/server.key' -c fsync=off -c synchronous_commit=off -c full_page_writes=off"
