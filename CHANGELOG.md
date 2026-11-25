@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - 2026-11-25
+
+Tests: 158 Common Test cases. The new `dream_postgres_driver_numeric_SUITE` compares 2,000 random `numeric` values in each direction with the text of the server, on PostgreSQL 16.16, 17.12, 18.7 and 19.0, with no difference.
+
+### Added
+- The decode option `numeric_as_text`. With it, each `numeric` value (also the elements of a `numeric` array, and a domain over `numeric`) decodes to a binary with its exact decimal text, the same text that PostgreSQL's `numeric_out` writes: the sign, all digits of the display scale with the trailing zeros (`<<"1.50">>`, `<<"0.00">>`), very large and very small values, and `<<"NaN">>`, `<<"Infinity">>` and `<<"-Infinity">>`. Give it per query in `decode_opts`, or for a pool in the pool config. Without the option, a `numeric` decodes as before. The new module `dream_postgres_driver_numeric_text` does the conversion.
+
+### Changed
+- A binary for a `numeric` parameter goes to the server in text format, and PostgreSQL reads it with its own `numeric_in`. The value keeps all digits and its scale, every text that PostgreSQL accepts works (`NaN`, `Infinity`, `1_000.5`, spaces around the number), and a text that is not a number gets PostgreSQL's own error (`22P02`, `invalid input syntax for type numeric: "abc"`). Before, pg_types parsed the binary itself: `<<"NaN">>`, `<<"Infinity">>` and a text that is not a number crashed the encoding. An integer, a float and the atoms `'NaN'`, `infinity` and `'-infinity'` encode as before, in binary format. The elements of a `numeric` array still use the pg_types encoding.
+
 ## [1.0.0] - 2026-11-24
 
 First release of the `dream_postgres_driver` fork, based on pgo 0.20.0 and the pgo `main` branch up to commit `1c8bf6f`.

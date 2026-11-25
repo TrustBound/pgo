@@ -3,7 +3,7 @@
 # rebar3 reads rebar.config and src/dream_postgres_driver.app.src. Keep the version,
 # the dependencies and the application settings the same in both.
 name = "dream_postgres_driver"
-version = "1.0.0"
+version = "1.1.0"
 licences = ["Apache-2.0"]
 description = "Postgres client with connection pool, a fork of pgo"
 

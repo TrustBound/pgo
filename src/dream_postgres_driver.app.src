@@ -1,6 +1,6 @@
 {application, dream_postgres_driver,
  [{description, "Postgres client with connection pool, a fork of pgo"},
-  {vsn, "1.0.0"},
+  {vsn, "1.1.0"},
   {registered, []},
   {mod, {dream_postgres_driver_app, []}},
   {applications,
