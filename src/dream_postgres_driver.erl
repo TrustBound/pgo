@@ -51,6 +51,7 @@
 
 -type decode_option() :: return_rows_as_maps | {return_rows_as_maps, boolean()} |
                          column_name_as_atom | {column_name_as_atom, boolean()} |
+                         numeric_as_text | {numeric_as_text, boolean()} |
                          {decode_fun, decode_fun()}.
 
 -type pool_option() :: queue | {queue, boolean()} |

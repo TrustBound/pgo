@@ -2,6 +2,7 @@
 -module(dream_postgres_driver_protocol).
 
 -include("dream_postgres_driver_internal.hrl").
+-include_lib("pg_types/include/pg_types.hrl").
 
 -export([encode_startup_message/1,
          encode_ssl_request_message/0,
@@ -135,7 +136,8 @@ encode_bind_message(Conn=#conn{pool=Pool}, PortalName, StatementName, Parameters
 
     ParametersValues = [encode_parameter(Parameter, TypeInfo)
                         || {Parameter, TypeInfo} <- ParametersWithTypes],
-    ParametersFormatsBin = [ParametersCountBin | [<<1:16/integer>> || _ <- ParametersValues]],
+    ParametersFormatsBin = [ParametersCountBin | [parameter_format(Parameter, TypeInfo)
+                                                  || {Parameter, TypeInfo} <- ParametersWithTypes]],
     Results = <<1:16/integer, 1:16/integer>>,   % We want all results in binary format.
     Packet = [PortalName, 0, StatementName, 0, ParametersFormatsBin,
               ParametersCountBin, ParametersValues, Results],
@@ -144,14 +146,26 @@ encode_bind_message(Conn=#conn{pool=Pool}, PortalName, StatementName, Parameters
 
 %%--------------------------------------------------------------------
 %% @doc Encode a parameter.
-%% All parameters are currently encoded in text format except binaries that are
-%% encoded as binaries.
+%% All parameters are encoded in binary format, except a binary for a
+%% `numeric' parameter. That binary is the text of the number, and it goes
+%% to the server in text format, so PostgreSQL's own `numeric_in' reads it:
+%% the value keeps all its digits and its scale, and a text that is not a
+%% number gets PostgreSQL's own error.
 %%
--spec encode_parameter(any(), pg_types:oid() | undefined) -> iodata().
+-spec encode_parameter(any(), #type_info{} | unknown_oid) -> iodata().
 encode_parameter(null, _Type) ->
     <<-1:32/integer>>;
+encode_parameter(Parameter, #type_info{typsend = <<"numeric_send">>}) when is_binary(Parameter) ->
+    [<<(byte_size(Parameter)):32/integer>>, Parameter];
 encode_parameter(Parameter, TypeInfo) ->
     pg_types:encode(Parameter, TypeInfo).
+
+%% The format code of a parameter in the bind message: 0 for text, 1 for binary.
+-spec parameter_format(any(), #type_info{} | unknown_oid) -> binary().
+parameter_format(Parameter, #type_info{typsend = <<"numeric_send">>}) when is_binary(Parameter) ->
+    <<0:16/integer>>;
+parameter_format(_Parameter, _TypeInfo) ->
+    <<1:16/integer>>.
 
 %%--------------------------------------------------------------------
 %% @doc Determine if we need the statement description with these parameters.
@@ -597,7 +611,12 @@ decode_row0([], [], _OIDMap, _DecodeOptions, Acc) ->
 decode_value(_Desc, null, _OIDMap, _DecodeOptions) -> null;
 decode_value(#row_description_field{type_info=TypeInfo,
                                     data_type_oid=_DataTypeOID,
-                                    format=binary}, Value, _OIDMap, _DecodeOptions) ->
-    pg_types:decode(Value, TypeInfo);
+                                    format=binary}, Value, _OIDMap, DecodeOptions) ->
+    case proplists:get_bool(numeric_as_text, DecodeOptions) of
+        true ->
+            pg_types:decode(Value, dream_postgres_driver_numeric_text:type_info(TypeInfo));
+        false ->
+            pg_types:decode(Value, TypeInfo)
+    end;
 decode_value(#row_description_field{format = text}, _Value, _OIDMap, _DecodeOptions) ->
     throw(no_text_format_support).
